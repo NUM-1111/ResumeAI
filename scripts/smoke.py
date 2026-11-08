@@ -9,7 +9,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from local import ROOT, LOCAL, config, environment
+from local import ROOT, LOCAL, config, environment, listening
+from passwords import test_credentials
 
 BASE = 'http://127.0.0.1:8080'
 jar = http.cookiejar.CookieJar()
@@ -32,6 +33,8 @@ def expect(condition, label):
 
 
 def main():
+    if listening(8080):
+        raise RuntimeError('Port 8080 already has a listener; refusing to reuse it')
     # Never stop or reuse an unrelated process already listening on the target port.
     import socket
     with socket.socket() as probe:
@@ -39,8 +42,9 @@ def main():
         probe.bind(('127.0.0.1', 8080))
     log_path = LOCAL / 'jar-smoke.log'
     with log_path.open('a') as log:
+        env, password = test_credentials(environment())
         process = subprocess.Popen(['java', '-jar', str(ROOT / 'target/agentcv-0.0.1-SNAPSHOT.jar')],
-                                   cwd=str(ROOT), env=environment(), stdout=log, stderr=log)
+                                   cwd=str(ROOT), env=env, stdout=log, stderr=log)
         try:
             for _ in range(60):
                 if process.poll() is not None:
@@ -57,13 +61,13 @@ def main():
             status, body, _, headers = request('/api/v1/csrf')
             token = json.loads(body)
             expect(status == 200 and headers['Cache-Control'] == 'no-store', 'CSRF response is not cached')
-            raw = urllib.parse.urlencode({'username': 'operator', 'password': config()['operator']}).encode()
+            raw = urllib.parse.urlencode({'username': 'operator', 'password': password}).encode()
             expect(request('/login', raw)[0] == 403, 'login without CSRF returns 403')
             wrong = urllib.parse.urlencode({'username': 'operator', 'password': 'invalid',
                                            token['parameterName']: token['token']}).encode()
             expect('error' in request('/login', wrong)[2], 'wrong credential does not authenticate')
             token = json.loads(request('/api/v1/csrf')[1])
-            raw = urllib.parse.urlencode({'username': 'operator', 'password': config()['operator'],
+            raw = urllib.parse.urlencode({'username': 'operator', 'password': password,
                                          token['parameterName']: token['token']}).encode()
             status, html, url, _ = request('/login', raw)
             expect(status == 200 and url == BASE + '/', 'real form login establishes session')
@@ -74,7 +78,7 @@ def main():
                 expect(status == 200 and len(body) > 0, 'same-origin asset served: ' + asset)
             status, body, _, _ = request('/api/v1/environment')
             result = json.loads(body)
-            expect(status == 200 and result['database'] == 'CONNECTED' and result['migrationVersion'] == '1'
+            expect(status == 200 and result['database'] == 'CONNECTED' and result['migrationVersion'] == '2'
                    and result['marker'] == '环境验证：中文持久化正常', 'real JDBC/Flyway response contains Chinese marker')
             expect(request('/logout', b'')[0] == 403, 'logout without CSRF returns 403')
             token = json.loads(request('/api/v1/csrf')[1])

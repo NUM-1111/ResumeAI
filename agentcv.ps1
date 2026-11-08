@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('db-start', 'db-stop', 'frontend', 'verify', 'run', 'dependencies', 'status')]
+    [ValidateSet('db-start', 'db-stop', 'frontend', 'verify', 'run', 'dependencies', 'status', 'set-password')]
     [string]$Command = 'status'
 )
 $ErrorActionPreference = 'Stop'

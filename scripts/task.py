@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
-parser.add_argument('name', choices=['frontend', 'verify', 'dependencies', 'run', 'smoke', 'startup-test'])
+parser.add_argument('name', choices=['frontend', 'verify', 'dependencies', 'run', 'smoke', 'startup-test', 'browser-s01'])
 args = parser.parse_args()
 local = ROOT / '.local'
 local.mkdir(mode=0o700, exist_ok=True)
@@ -27,6 +27,8 @@ with (local / (args.name + '.log')).open('a') as log:
     command = [sys.executable, str(ROOT / 'scripts/smoke.py')] if args.name == 'smoke' else [sys.executable, str(ROOT / 'scripts/local.py'), args.name]
     if args.name == 'startup-test':
         command = [sys.executable, str(ROOT / 'scripts/test_startup.py')]
+    if args.name == 'browser-s01':
+        command = [sys.executable, str(ROOT / 'scripts/browser_s01.py')]
     process = subprocess.Popen(command,
                                cwd=str(ROOT), stdout=log, stderr=log, start_new_session=True)
 pid_file.write_text(str(process.pid))

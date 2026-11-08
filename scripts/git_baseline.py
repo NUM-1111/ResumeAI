@@ -4,6 +4,10 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--message', default='chore: establish verified environment baseline (AI-assisted)')
+message = parser.parse_args().message
 def git(*args):
     return subprocess.run(['git', '-C', str(ROOT), *args], check=True, stdout=subprocess.PIPE, text=True).stdout
 
@@ -14,7 +18,7 @@ paths = git('ls-files', '-z', '--cached', '--others', '--exclude-standard').stri
 secret_path = ROOT / '.local/credentials.json'
 secrets = json.loads(secret_path.read_text()).values() if secret_path.exists() else []
 for relative in paths:
-    if any(part in ('.local', 'node_modules', 'target', 'dist', '__pycache__') for part in Path(relative).parts):
+    if any(part in ('.local', 'node_modules', 'target', 'dist', '.test-build', '__pycache__') for part in Path(relative).parts):
         raise SystemExit('Refusing generated/private path: ' + relative)
     content = (ROOT / relative).read_bytes()
     if any(value.encode() in content for value in secrets):
@@ -22,5 +26,5 @@ for relative in paths:
 git('add', '--all')
 print('Audited staged files:', len(git('ls-files').splitlines()))
 git('-c', 'user.name=AgentCV Coding Assistant', '-c', 'user.email=agentcv-assistant@localhost',
-    'commit', '-m', 'chore: establish verified environment baseline (AI-assisted)')
+    'commit', '-m', message)
 print(git('rev-parse', 'HEAD'))

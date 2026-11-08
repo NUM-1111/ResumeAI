@@ -16,17 +16,18 @@ import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 @Configuration
 class SecurityConfiguration {
     @Bean
-    UserDetailsService operator(@Value("${agentcv.operator-password}") String password) {
-        if (password.length() < 20) {
-            throw new IllegalArgumentException("Local operator credential must contain at least 20 characters");
+    UserDetailsService operator(@Value("${agentcv.operator-password-hash}") String passwordHash) {
+        if (!passwordHash.matches("\\$2[aby]\\$\\d{2}\\$[./A-Za-z0-9]{53}")) {
+            throw new IllegalArgumentException("Operator credential must be a BCrypt hash");
         }
         return new InMemoryUserDetailsManager(User.withUsername("operator")
-                .password("{bcrypt}" + new BCryptPasswordEncoder().encode(password)).roles("OPERATOR").build());
+                .password("{bcrypt}" + passwordHash).roles("OPERATOR").build());
     }
 
     @Bean
     SecurityFilterChain security(HttpSecurity http) throws Exception {
-        http.authorizeHttpRequests(auth -> auth
+        http.addFilterBefore(new LoginRateFilter(),org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class)
+                .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/csrf", "/error").permitAll()
                         .anyRequest().authenticated())
                 .formLogin(form -> form.defaultSuccessUrl("/", true).permitAll())

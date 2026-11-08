@@ -18,13 +18,13 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+@SpringBootTest(properties={"agentcv.operator-password-hash=${AGENTCV_TEST_PASSWORD_HASH}","agentcv.test-password=${AGENTCV_TEST_PASSWORD}"})
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 class EnvironmentIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired JdbcClient jdbc;
     @Autowired Flyway flyway;
-    @Value("${agentcv.operator-password}") String password;
+    @Value("${agentcv.test-password}") String password;
 
     @Test
     void migrationIsValidAndRepeatableWithoutDuplicateRows() {
@@ -52,7 +52,7 @@ class EnvironmentIntegrationTest {
         assertThat(session).isNotNull();
         mvc.perform(get("/api/v1/environment").session(session)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.database").value("CONNECTED"))
-                .andExpect(jsonPath("$.migrationVersion").value("1"));
+                .andExpect(jsonPath("$.migrationVersion").value("2"));
         mvc.perform(get("/").session(session)).andExpect(status().isOk())
                 .andExpect(forwardedUrl("index.html"));
         mvc.perform(get("/index.html").session(session)).andExpect(status().isOk())

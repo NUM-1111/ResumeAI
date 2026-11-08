@@ -10,6 +10,7 @@ import subprocess
 import sys
 import urllib.parse
 import xml.etree.ElementTree as ET
+from passwords import bcrypt_hash, test_credentials
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / '.local'
@@ -102,14 +103,22 @@ def config():
             json.dump(values, stream)
     if path.stat().st_mode & 0o077:
         raise RuntimeError('credentials.json must not be accessible to group/others')
-    return json.loads(path.read_text())
+    values = json.loads(path.read_text())
+    if 'operator' in values:
+        values['operatorHash'] = bcrypt_hash(values['operator'])
+        del values['operator']
+        # Preserve the same password while removing its cleartext persisted value.
+        with path.open('w') as stream:
+            json.dump(values, stream)
+        print('Migrated operator credential to bcrypt-only storage; password unchanged.', flush=True)
+    return values
 
 
 def environment():
     values = config()
     env = os.environ.copy()
     env['AGENTCV_DB_PASSWORD'] = values['database']
-    env['AGENTCV_OPERATOR_PASSWORD'] = values['operator']
+    env['AGENTCV_OPERATOR_PASSWORD_HASH'] = values['operatorHash']
     env['PATH'] = str(NODE) + ':' + env['PATH']
     return env
 
@@ -136,9 +145,12 @@ def maven(*goals):
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'wb') as stream:
         ET.ElementTree(settings).write(stream, encoding='utf-8', xml_declaration=True)
+    env = environment()
+    if 'verify' in goals:
+        env, _ = test_credentials(env)
     return run(['mvn', '-B', '-ntp', '-s', path,
                 '-Dmaven.wagon.httpconnectionManager.ttlSeconds=20',
-                '-Dmaven.wagon.rto=20000', '-Dmaven.wagon.http.retryHandler.count=1', *goals], env=environment())
+                '-Dmaven.wagon.rto=20000', '-Dmaven.wagon.http.retryHandler.count=1', *goals], env=env)
 
 
 def psql(sql):
@@ -176,13 +188,23 @@ def db_start():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['db-start', 'db-stop', 'frontend', 'verify', 'run', 'dependencies', 'status'])
+    parser.add_argument('command', choices=['db-start', 'db-stop', 'frontend', 'verify', 'run', 'dependencies', 'status', 'set-password'])
     command = parser.parse_args().command
     require_linux()
     if command == 'status':
         status()
         return
-    if command == 'db-start':
+    if command == 'set-password':
+        import getpass
+        password = getpass.getpass('New operator password (20-64 characters, hidden): ')
+        if password != getpass.getpass('Repeat password: '):
+            raise RuntimeError('Passwords do not match')
+        values = config()
+        values['operatorHash'] = bcrypt_hash(password)
+        with (LOCAL / 'credentials.json').open('w') as stream:
+            json.dump(values, stream)
+        print('Operator bcrypt hash updated. Restart application to take effect.')
+    elif command == 'db-start':
         db_start()
     elif command == 'db-stop':
         pg(PG / 'pg_ctl', '-D', DATA, '-m', 'fast', '-w', 'stop')

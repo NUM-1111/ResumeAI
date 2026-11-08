@@ -1,6 +1,6 @@
 # AgentCV · 最小工程验证
 
-本检查点仅验证工程可构建启动、PostgreSQL/JDBC/Flyway、Vue/TypeScript/Vite 构建与 Boot 同源托管。尚无档案、工作区、简历导入保存或 AI 功能，不能作为第一业务切片验收。
+当前为 S01 中文纯文本业务切片：档案/工作区、材料检查确认、独立当前稿、自动保存与重开。等待用户操作验收；不接模型，不支持 DOCX/PDF、JD、删除恢复、历史恢复或备份。仅使用合成数据，PostgreSQL 12 不作为长期真实资料运行版本。
 
 ## 路径与固定工具
 
@@ -55,9 +55,15 @@ python3 /root/java/ResumeAI/scripts/smoke.py
 python3 /root/java/ResumeAI/scripts/local.py run
 ```
 
-浏览器访问 `http://127.0.0.1:8080/`，用户名 `operator`。仅本机验证用随机口令位于 `/root/java/ResumeAI/.local/credentials.json` 的 `operator` 字段，请在本机编辑器查看，不将该文件发到聊天、提交仓库或复制到日志。配置文件权限 600，目录权限 700；应用内存中使用 BCrypt 散列。当前是环境检查点的本地引导凭据安排，正式口令配置/凭据轮换在安全切片收口，不将其描述为完整安全验收。
+浏览器访问 `http://127.0.0.1:8080/`，用户名 `operator`。S01 已将原环境引导口令迁移为 BCrypt 散列，保留原密码有效但不再存明文。若你没有记住旧口令，请在 WSL 前台交互设置（输入不回显，20—64字符）：
 
-登录后页面从真实数据库读取中文标记，可重新检查及退出。这里不需要 Vite 开发服务器或 Windows Node。应用仅绑定回环，不提供局域/公网模式。
+```bash
+python3 /root/java/ResumeAI/scripts/local.py set-password
+```
+
+然后启动/重启应用。不要把密码、`.local/credentials.json` 或其中数据库凭据发到聊天。测试使用临时内存口令，不修改你的登录口令。配置文件权限600、目录700。无注册、JWT或外发；局域模式、完整安全测试及备份未完成。
+
+登录后左侧创建/选择档案及工作区，右侧粘贴或上传UTF-8 .txt（256 KiB内），保存为待检查材料，修正后确认，再从已确认材料或同档案其他工作区建立当前稿。中央编辑停止约900ms自动保存，失败保留页面文本。这里不需要 Vite 开发服务器或 Windows Node。应用仅绑定回环，不提供局域/公网模式。
 
 前台运行按 Ctrl+C 停止应用。停止验证数据库：
 

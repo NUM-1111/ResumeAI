@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "engines": { "node": "22.22.2", "npm": "10.9.7" },
-  "scripts": { "build": "tsc --noEmit && vite build" },
+  "scripts": { "build": "tsc --noEmit && vite build", "test": "tsc src/editor.ts --outDir .test-build --target ES2022 --module ESNext --moduleResolution Bundler --skipLibCheck && node --test tests/*.test.mjs" },
   "dependencies": { "vue": "3.5.45" },
   "devDependencies": { "typescript": "5.9.3", "vite": "8.3.4" }
 }
