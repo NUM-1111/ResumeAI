@@ -1,0 +1,35 @@
+  current_database  | current_user 
+--------------------+--------------
+ agentcv_validation | postgres
+(1 row)
+
+ version | success 
+---------+---------
+ 1       | t
+(1 row)
+
+ id |          marker          
+----+--------------------------
+  1 | 环境验证：中文持久化正常
+(1 row)
+
+ listen_addresses 
+------------------
+ 127.0.0.1
+(1 row)
+
+ port  
+-------
+ 55432
+(1 row)
+
+ password_encryption 
+---------------------
+ scram-sha-256
+(1 row)
+
+      rolname       | rolsuper | rolcreatedb | rolcreaterole 
+--------------------+----------+-------------+---------------
+ agentcv_validation | f        | f           | f
+(1 row)
+
