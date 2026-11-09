@@ -1,4 +1,4 @@
-# AgentCV · 最小工程验证
+# AgentCV · S01 中文文本工作台
 
 当前为 S01 中文纯文本业务切片：档案/工作区、材料检查确认、独立当前稿、自动保存与重开。等待用户操作验收；不接模型，不支持 DOCX/PDF、JD、删除恢复、历史恢复或备份。仅使用合成数据，PostgreSQL 12 不作为长期真实资料运行版本。
 
@@ -75,4 +75,6 @@ python3 /root/java/ResumeAI/scripts/local.py db-stop
 
 ## 记录与限制
 
-当前结果见 `/root/java/ResumeAI/开发进度.md` 和 `/root/java/ResumeAI/docs/ENV-02_验证记录.md`。3 个集成测试连接真实 PostgreSQL；JAR 冒烟测试是真实 HTTP 和 Cookie 会话，不是浏览器渲染验收。浏览器视觉、Windows 主机到 WSL 的页面访问、业务 AT01—AT21、升级迁移、完整安全/备份恢复均未通过本检查点验证。
+当前结果见 `/root/java/ResumeAI/开发进度.md`、`/root/java/ResumeAI/docs/S01_交付与验收记录.md`；待办与责任分工见 `/root/java/ResumeAI/docs/阶段核查与决策清单.md`。S01 已有9项后端测试、3项前端状态测试、真实Chromium流程及12项JAR HTTP检查通过；Windows主机到WSL的HTTP访问已验证。浏览器自动化不替代用户操作验收，完整AT01—AT21、安全及备份恢复尚未完成。ENV-02/03记录保留其当时结论，不作为当前总状态。
+
+GitHub：https://github.com/NUM-1111/ResumeAI 。远程使用SSH，2026-11-09核查远程main与本地dd3dc0c一致；后续同步以 `git status` 和 `git ls-remote --heads origin` 为准。日常提交后使用普通 `git push`，不默认强推。
