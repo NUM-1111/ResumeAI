@@ -97,7 +97,8 @@ def config():
     LOCAL.mkdir(mode=0o700, exist_ok=True)
     path = LOCAL / 'credentials.json'
     if not path.exists():
-        values = {key: secrets.token_hex(24) for key in ('admin', 'database', 'operator')}
+        values = {key: secrets.token_hex(24) for key in ('admin', 'database')}
+        values['operatorHash'] = bcrypt_hash(secrets.token_hex(12))
         fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as stream:
             json.dump(values, stream)
@@ -105,7 +106,7 @@ def config():
         raise RuntimeError('credentials.json must not be accessible to group/others')
     values = json.loads(path.read_text())
     if 'operator' in values:
-        values['operatorHash'] = bcrypt_hash(values['operator'])
+        values['operatorHash'] = bcrypt_hash(values['operator'], legacy=True)
         del values['operator']
         # Preserve the same password while removing its cleartext persisted value.
         with path.open('w') as stream:
@@ -196,7 +197,7 @@ def main():
         return
     if command == 'set-password':
         import getpass
-        password = getpass.getpass('New operator password (20-64 characters, hidden): ')
+        password = getpass.getpass('New operator password (6-32 characters, hidden): ')
         if password != getpass.getpass('Repeat password: '):
             raise RuntimeError('Passwords do not match')
         values = config()

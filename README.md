@@ -55,7 +55,7 @@ python3 /root/java/ResumeAI/scripts/smoke.py
 python3 /root/java/ResumeAI/scripts/local.py run
 ```
 
-浏览器访问 `http://127.0.0.1:8080/`，用户名 `operator`。S01 已将原环境引导口令迁移为 BCrypt 散列，保留原密码有效但不再存明文。若你没有记住旧口令，请在 WSL 前台交互设置（输入不回显，20—64字符）：
+浏览器访问 `http://127.0.0.1:8080/`，用户名 **`operator`**。没有通用默认密码。请在 WSL 前台设置自己的 **6—32字符（含边界）**口令，输入不回显。旧密码不被自动替换，历史散列继续有效；下一次设置遵守新范围。中文等多字节输入另受BCrypt的72 UTF-8字节上限约束，超出明确拒绝，不截断：
 
 ```bash
 python3 /root/java/ResumeAI/scripts/local.py set-password
@@ -74,6 +74,8 @@ python3 /root/java/ResumeAI/scripts/local.py db-stop
 `smoke.py` 会自行启动和停止本轮 JAR，若 8080 已占用则失败，不终止未知进程。数据库数据保留，不执行删除或 Flyway clean。凭据丢失或目录状态不明时先检查，不自动清空重建。
 
 ## 记录与限制
+
+完整操作步骤、测试数据、预期结果、接口核对及结果表见 [S01操作测试手册](docs/S01_操作测试手册.md)。执行后逐项填写实际结果，不能把手册存在视为测试通过。
 
 当前结果见 `/root/java/ResumeAI/开发进度.md`、`/root/java/ResumeAI/docs/S01_交付与验收记录.md`；待办与责任分工见 `/root/java/ResumeAI/docs/阶段核查与决策清单.md`。S01 已有9项后端测试、3项前端状态测试、真实Chromium流程及12项JAR HTTP检查通过；Windows主机到WSL的HTTP访问已验证。浏览器自动化不替代用户操作验收，完整AT01—AT21、安全及备份恢复尚未完成。ENV-02/03记录保留其当时结论，不作为当前总状态。
 

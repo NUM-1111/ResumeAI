@@ -1,5 +1,6 @@
 """Real packaged-JAR HTTP checks; no mocked server and no external services."""
 import http.cookiejar
+import argparse
 import json
 from pathlib import Path
 import re
@@ -33,16 +34,25 @@ def expect(condition, label):
 
 
 def main():
-    if listening(8080):
-        raise RuntimeError('Port 8080 already has a listener; refusing to reuse it')
+    global BASE
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port', type=int, default=8080)
+    parser.add_argument('--password-length', type=int, default=24, choices=range(6,33))
+    options = parser.parse_args()
+    if not 1024 <= options.port <= 65535:
+        raise RuntimeError('Smoke port must be 1024 to 65535')
+    BASE = 'http://127.0.0.1:' + str(options.port)
+    if listening(options.port):
+        raise RuntimeError('Smoke port already has a listener; refusing to reuse it')
     # Never stop or reuse an unrelated process already listening on the target port.
     import socket
     with socket.socket() as probe:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        probe.bind(('127.0.0.1', 8080))
+        probe.bind(('127.0.0.1', options.port))
     log_path = LOCAL / 'jar-smoke.log'
     with log_path.open('a') as log:
-        env, password = test_credentials(environment())
+        env, password = test_credentials(environment(), options.password_length)
+        env['SERVER_PORT'] = str(options.port)
         process = subprocess.Popen(['java', '-jar', str(ROOT / 'target/agentcv-0.0.1-SNAPSHOT.jar')],
                                    cwd=str(ROOT), env=env, stdout=log, stderr=log)
         try:
