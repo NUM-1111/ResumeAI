@@ -65,7 +65,19 @@ python3 /root/java/ResumeAI/scripts/local.py set-password
 
 登录后左侧创建/选择档案及工作区，右侧粘贴或上传UTF-8 .txt（256 KiB内），保存为待检查材料，修正后确认，再从已确认材料或同档案其他工作区建立当前稿。中央编辑停止约900ms自动保存，失败保留页面文本。这里不需要 Vite 开发服务器或 Windows Node。应用仅绑定回环，不提供局域/公网模式。
 
-前台运行按 Ctrl+C 停止应用。停止验证数据库：
+前台运行按 Ctrl+C 停止应用。
+
+如果终端已丢失、或重复run提示已经运行，可在另一个WSL终端安全停止本工程，再重新启动：
+
+```bash
+python3 /root/java/ResumeAI/scripts/local.py status
+python3 /root/java/ResumeAI/scripts/local.py stop
+python3 /root/java/ResumeAI/scripts/local.py run
+```
+
+stop只向已核对的本工程8080监听Java进程发SIGTERM，最多等待15秒，不强杀未知进程、不停止数据库。重复run已确认本工程在运行时只显示网页地址，不启动第二份，也不代表新密码或新JAR已被加载；改密码/构建后必须stop再run。PowerShell入口同样支持stop。
+
+停止验证数据库：
 
 ```bash
 python3 /root/java/ResumeAI/scripts/local.py db-stop

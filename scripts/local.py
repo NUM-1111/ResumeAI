@@ -6,6 +6,9 @@ import os
 from pathlib import Path
 import secrets
 import socket
+import re
+import signal
+import time
 import subprocess
 import sys
 import urllib.parse
@@ -34,6 +37,43 @@ def listening(port):
         return False
 
 
+def application_pid():
+    """Identify the actual listener, not an arbitrary Java process or stale PID file."""
+    result = subprocess.run(['ss', '-H', '-ltnp', 'sport', '=', ':8080'],
+                            check=True, text=True, stdout=subprocess.PIPE)
+    pids = set(re.findall(r'pid=(\d+)', result.stdout))
+    if len(pids) != 1:
+        return None
+    pid = int(next(iter(pids)))
+    try:
+        args = Path('/proc/' + str(pid) + '/cmdline').read_bytes().split(b'\0')
+        jar = str(ROOT / 'target/agentcv-0.0.1-SNAPSHOT.jar').encode()
+        if len(args) >= 3 and Path(os.fsdecode(args[0])).name == 'java' and args[1:3] == [b'-jar', jar]:
+            return pid
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def stop_application():
+    if not listening(8080):
+        print('AgentCV is already stopped; database was not changed.')
+        return
+    pid = application_pid()
+    if pid is None:
+        raise RuntimeError('Port 8080 belongs to an unverified process; refusing to stop it. Inspect: ss -ltnp sport = :8080')
+    # Recheck ownership immediately before signalling, never use a stored/stale PID.
+    if application_pid() != pid:
+        raise RuntimeError('Listener changed; refusing to stop it. Retry status.')
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(150):
+        if not listening(8080):
+            print('AgentCV stopped gracefully; database remains running.')
+            return
+        time.sleep(0.1)
+    raise RuntimeError('Shutdown has not released 8080 after 15 seconds; no force kill attempted. Inspect status/logs.')
+
+
 def status():
     print('Runtime: ' + sys.executable + ' (' + sys.platform + ')')
     print('Project: ' + str(ROOT))
@@ -42,6 +82,10 @@ def status():
     print('Packaged JAR: ' + ('PRESENT' if (ROOT / 'target/agentcv-0.0.1-SNAPSHOT.jar').is_file() else 'MISSING; run frontend then verify'))
     print('Application log: ' + str(LOCAL / 'run.log'))
     print('Database log: ' + str(DATA / 'server.log'))
+    if listening(8080):
+        pid = application_pid()
+        print('Listener: ' + ('verified AgentCV PID ' + str(pid) if pid else 'unverified process; will not stop automatically'))
+        print('Open http://127.0.0.1:8080/ ; to stop this project: python3 ' + str(ROOT / 'scripts/local.py') + ' stop')
 
 
 def run_application():
@@ -51,6 +95,11 @@ def run_application():
     if not listening(55432):
         raise RuntimeError('Validation database is stopped. Run db-start first.')
     if listening(8080):
+        pid = application_pid()
+        if pid is not None:
+            print('AgentCV is already running (PID ' + str(pid) + '). No second instance started.')
+            print('Open http://127.0.0.1:8080/ . To reload a changed password/JAR: run local.py stop, then local.py run.')
+            return
         raise RuntimeError('Port 8080 is already occupied; inspect status before starting. No process was stopped.')
     env = environment()
     path = LOCAL / 'run.log'
@@ -189,7 +238,7 @@ def db_start():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['db-start', 'db-stop', 'frontend', 'verify', 'run', 'dependencies', 'status', 'set-password'])
+    parser.add_argument('command', choices=['db-start', 'db-stop', 'frontend', 'verify', 'run', 'stop', 'dependencies', 'status', 'set-password'])
     command = parser.parse_args().command
     require_linux()
     if command == 'status':
@@ -227,6 +276,8 @@ def main():
         maven('dependency:tree', '-DoutputFile=.local/dependency-tree.txt')
     elif command == 'run':
         run_application()
+    elif command == 'stop':
+        stop_application()
 
 
 if __name__ == '__main__':
