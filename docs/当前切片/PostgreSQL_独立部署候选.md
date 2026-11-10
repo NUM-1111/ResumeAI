@@ -1,5 +1,7 @@
 # 受支持 PostgreSQL：只读调研与待批准方案
 
+> 已被后续批准和执行：官方17.11独立容器已迁移验证通过，12停用。实际见[迁移记录](PostgreSQL17_迁移记录.md)。本文保留候选形成时依据，不再表示尚未批准。
+
 2026-11-10实际核查：Ubuntu20.04.6；Docker服务可响应，Server28.0.1；现有镜像有FerretDB专用postgres-documentdb17，不是本项目要复用的纯PostgreSQL实例。未拉取镜像、未创建容器、未升级系统。PostgreSQL12.22继续限合成验证。
 
 官方版本表 https://www.postgresql.org/support/versioning/ 已重新读取；12停止支持。建议继续优先评估17受支持补丁版，执行前再核验具体补丁和官方镜像digest，不使用漂移latest，不把候选当兼容性已通过。

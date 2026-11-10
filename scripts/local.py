@@ -77,11 +77,11 @@ def stop_application():
 def status():
     print('Runtime: ' + sys.executable + ' (' + sys.platform + ')')
     print('Project: ' + str(ROOT))
-    print('Database 127.0.0.1:55432: ' + ('LISTENING (not an authentication check)' if listening(55432) else 'STOPPED'))
+    print('PostgreSQL17 127.0.0.1:55433: ' + ('LISTENING (not an authentication check)' if listening(55433) else 'STOPPED'))
     print('Application 127.0.0.1:8080: ' + ('LISTENING (not a readiness check)' if listening(8080) else 'STOPPED'))
     print('Packaged JAR: ' + ('PRESENT' if (ROOT / 'target/agentcv-0.0.1-SNAPSHOT.jar').is_file() else 'MISSING; run frontend then verify'))
     print('Application log: ' + str(LOCAL / 'run.log'))
-    print('Database log: ' + str(DATA / 'server.log'))
+    print('Database log: docker logs agentcv-postgres17; legacy12 is archived, not used')
     if listening(8080):
         pid = application_pid()
         print('Listener: ' + ('verified AgentCV PID ' + str(pid) if pid else 'unverified process; will not stop automatically'))
@@ -92,7 +92,7 @@ def run_application():
     jar = ROOT / 'target/agentcv-0.0.1-SNAPSHOT.jar'
     if not jar.is_file():
         raise RuntimeError('Packaged JAR missing; run frontend then verify')
-    if not listening(55432):
+    if not listening(55433):
         raise RuntimeError('Validation database is stopped. Run db-start first.')
     if listening(8080):
         pid = application_pid()
@@ -168,6 +168,7 @@ def environment():
     values = config()
     env = os.environ.copy()
     env['AGENTCV_DB_PASSWORD'] = values['database']
+    env['SPRING_DATASOURCE_URL'] = 'jdbc:postgresql://127.0.0.1:55433/agentcv_validation'
     env['AGENTCV_OPERATOR_PASSWORD_HASH'] = values['operatorHash']
     env['PATH'] = str(NODE) + ':' + env['PATH']
     return env
@@ -208,7 +209,7 @@ def psql(sql):
               '-p', '55432', '-d', 'postgres', input=sql, text=True)
 
 
-def db_start():
+def legacy_db_start():
     values = config()
     if DATA.is_symlink() or not DATA.is_dir():
         raise RuntimeError('Expected approved real database directory')
@@ -224,8 +225,12 @@ def db_start():
             stream.write(settings)
     if (DATA / 'PG_VERSION').read_text().strip() != '12':
         raise RuntimeError('Unexpected PostgreSQL data version')
-    status = pg(PG / 'pg_ctl', '-D', DATA, 'status', stdout=subprocess.PIPE) if (DATA / 'postmaster.pid').exists() else None
-    if status is None:
+    # A PID file can survive an unclean shutdown; it does not prove the server is running.
+    try:
+        pg(PG / 'pg_ctl', '-D', DATA, 'status', stdout=subprocess.PIPE)
+    except subprocess.CalledProcessError as error:
+        if error.returncode != 3:  # pg_ctl status: 3 means no server is running.
+            raise
         pg(PG / 'pg_ctl', '-D', DATA, '-l', DATA / 'server.log', '-w', 'start')
     # Secrets are passed through stdin, never as command-line arguments.
     psql("SELECT 'CREATE ROLE agentcv_validation LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE' "
@@ -234,6 +239,11 @@ def db_start():
          "SELECT 'CREATE DATABASE agentcv_validation OWNER agentcv_validation' "
          "WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='agentcv_validation')\gexec\n")
     print('Isolated database ready at 127.0.0.1:55432 (synthetic validation only).')
+
+
+def db_start():
+    from postgres17 import start
+    start()
 
 
 def main():
@@ -257,7 +267,8 @@ def main():
     elif command == 'db-start':
         db_start()
     elif command == 'db-stop':
-        pg(PG / 'pg_ctl', '-D', DATA, '-m', 'fast', '-w', 'stop')
+        from postgres17 import stop
+        stop()
     elif command == 'frontend':
         env = environment()
         if run([NODE / 'node', '--version'], env=env).returncode != 0:

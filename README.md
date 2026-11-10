@@ -1,14 +1,14 @@
 # AgentCV · S01 中文文本工作台
 
-当前为 S01 中文纯文本业务切片：档案/工作区、材料检查确认、独立当前稿、自动保存与重开。等待用户操作验收；不接模型，不支持 DOCX/PDF、JD、删除恢复、历史恢复或备份。仅使用合成数据，PostgreSQL 12 不作为长期真实资料运行版本。
+S01基本交互与S02安全回收已获用户基本体验认可：档案/工作区、材料确认、当前稿、自动保存、替换、删除/恢复。开发库已迁至官方PostgreSQL17.11；12保留停用。不接模型，DOCX/PDF、辅助引用、JD、历史恢复及完整备份维护仍待后续切片。继续仅用合成数据。
 
 ## 路径与固定工具
 
 - 主工作树：`/root/java/ResumeAI`；交接主副本在其 `核心交接` 目录。
-- 验证数据库：`/var/lib/postgresql/resumeai-validation`，postgres 系统用户，权限 700，端口 `127.0.0.1:55432`。原 `/var/lib/postgresql/12/main` 不参与。
+- 开发数据库：Docker容器 `agentcv-postgres17`、独立卷 `agentcv-postgres17-data`，仅 `127.0.0.1:55433`，镜像摘要见 `/root/java/ResumeAI/postgres17.lock.json`。旧12目录 `/var/lib/postgresql/resumeai-validation` 停用保留，原 `/var/lib/postgresql/12/main` 不参与。
 - Java 17.0.15、Maven 3.6.3、Python 3.8.10；脚本明确使用 `/root/.nvm/versions/node/v22.22.2/bin` 下的 Node 22.22.2/npm 10.9.7。
 - Boot 3.5.16；Vue 3.5.45、TypeScript 5.9.3、Vite 8.3.4。前端完整传递依赖由 `frontend/package-lock.json` 固定；后端由固定 Boot parent/BOM 管理，实际树见 `docs/历史环境/依赖树_ENV-02.txt`。
-- PostgreSQL 12.22 仅限批准的合成数据验证，正式版本未确定。完整维护/安全核查尚未完成。
+- PostgreSQL17.11已完成导入和业务回归；完整维护/安全及通用备份恢复仍未完成。Docker需运行；WSL重启后执行db-start启动已有实例，不自动拉取镜像或回退12。
 
 ## 构建与验证（WSL 终端）
 
@@ -45,7 +45,7 @@ python3 /root/java/ResumeAI/scripts/local.py verify
 python3 /root/java/ResumeAI/scripts/smoke.py
 ```
 
-`db-start` 首次只在已批准的空目录初始化，后续只启动/检查同实例。不调用系统 service，不自动启动原集群。前端首次 install 产生锁文件，后续使用 npm ci；后端 verify 不跳过测试，前端必须先构建。Maven 通过项目 `.local/maven-settings.xml` 显式采用现有 `https_proxy/HTTPS_PROXY`，不修改全局设置；未配置代理时使用默认直连。若网络失败，命令失败并显示原因，不更换仓库或技术栈。
+`db-start` 只启动已核验标签及镜像的17容器，不创建未知实例，不启动12。前端使用npm ci；后端verify不跳过测试，前端必须先构建。Maven通过项目.local设置使用终端代理；Docker服务代理经用户单独批准配置，原配置已有备份。下载失败不静默换源。迁移详见 [17迁移记录](docs/当前切片/PostgreSQL17_迁移记录.md)。
 
 外部执行器有 30 秒限制时可用 `python3 /root/java/ResumeAI/scripts/task.py verify` 等启动独立任务，读取 `.local/verify.log`。日志中的成功/失败才是结果，PID 不代表成功。普通 WSL 终端优先使用前台命令。
 
@@ -63,7 +63,7 @@ python3 /root/java/ResumeAI/scripts/local.py set-password
 
 然后启动/重启应用。不要把密码、`.local/credentials.json` 或其中数据库凭据发到聊天。测试使用临时内存口令，不修改你的登录口令。配置文件权限600、目录700。无注册、JWT或外发；局域模式、完整安全测试及备份未完成。
 
-登录后左侧创建/选择档案及工作区，右侧粘贴或上传UTF-8 .txt（256 KiB内），保存为待检查材料，修正后确认，再从已确认材料或同档案其他工作区建立当前稿。中央编辑停止约900ms自动保存，失败保留页面文本。这里不需要 Vite 开发服务器或 Windows Node。应用仅绑定回环，不提供局域/公网模式。
+登录后左侧逐层选择档案、工作区和材料，中央粘贴或上传UTF-8 .txt（256 KiB内），右侧保存待检查材料、确认并建立当前稿；确认材料也可预览后替换已有稿。中央编辑停止约900ms自动保存，失败保留页面文本。顶部回收站恢复软删除对象。无需Vite开发服务器或Windows Node；仅回环访问。
 
 前台运行按 Ctrl+C 停止应用。
 
@@ -89,6 +89,6 @@ python3 /root/java/ResumeAI/scripts/local.py db-stop
 
 文档总入口：[文档导航](docs/README.md)。用户只参考 [页面验收简版](docs/用户指南/S01_用户验收简版.md)，不要求F12、UUID、接口或数据库核对；技术测试由助手执行。已有反馈不用重新记录，页面难用也是验收阻塞项。
 
-当前结果见 `/root/java/ResumeAI/开发进度.md`、`/root/java/ResumeAI/docs/当前切片/S01_交付与验收记录.md`；待办与责任分工见 `/root/java/ResumeAI/docs/当前切片/阶段核查与决策清单.md`。S01 已有9项后端测试、3项前端状态测试、真实Chromium流程及12项JAR HTTP检查通过；Windows主机到WSL的HTTP访问已验证。浏览器自动化不替代用户操作验收，完整AT01—AT21、安全及备份恢复尚未完成。ENV-02/03记录保留其当时结论，不作为当前总状态。
+当前结果见 `/root/java/ResumeAI/开发进度.md`，数据库迁移见上述17记录。17上16项后端、12项JAR HTTP和五组Chromium通过，前端状态3项通过；完整AT01—AT21、安全及备份恢复尚未完成。历史ENV和各切片旧记录保留当时范围，不作为最新总状态。
 
 GitHub：https://github.com/NUM-1111/ResumeAI 。远程使用SSH，2026-11-09核查远程main与本地dd3dc0c一致；后续同步以 `git status` 和 `git ls-remote --heads origin` 为准。日常提交后使用普通 `git push`，不默认强推。

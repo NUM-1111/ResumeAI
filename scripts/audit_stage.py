@@ -21,6 +21,5 @@ SHOW listen_addresses;
 SHOW port;
 COMMIT;
 """
-run(['/usr/sbin/runuser','-u','postgres','--','/usr/lib/postgresql/12/bin/psql',
-     '-X','-v','ON_ERROR_STOP=1','-h','/var/lib/postgresql/resumeai-validation',
-     '-p','55432','-d','agentcv_validation'], input=sql)
+from postgres17 import sql as database_sql
+print(database_sql(sql))

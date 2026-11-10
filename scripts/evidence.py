@@ -26,12 +26,12 @@ sql = ("SELECT current_database(), current_user;\n"
        "SELECT id, marker FROM environment_checkpoint;\n"
        "SHOW listen_addresses;\nSHOW port;\nSHOW password_encryption;\n"
        "SELECT rolname, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname='agentcv_validation';\n")
-result = pg(PG / 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-h', DATA,
-            '-p', '55432', '-d', 'agentcv_validation', input=sql, text=True, stdout=subprocess.PIPE)
+from postgres17 import sql as database_sql
+database_output = database_sql(sql)
 output = LOCAL / 'current-evidence'
 output.mkdir(exist_ok=True)
-(output / 'database.txt').write_text(result.stdout)
-print(result.stdout)
+(output / 'database.txt').write_text(database_output)
+print(database_output)
 
 files = []
 for folder in (ROOT / 'src', ROOT / 'scripts', ROOT / 'frontend'):
