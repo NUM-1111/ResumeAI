@@ -150,9 +150,31 @@ public class WorkspaceService {
         return getImport(p,id);
     }
     public Map<String,Object> confirm(UUID p,UUID m,Map<String,Object>b) {
-        getImport(p,m);String content=text(string(b,"text",262144));
-        if(db.update("update material_import set confirmed_text=?,check_state='CONFIRMED',row_version=row_version+1 where id=? and profile_id=? and row_version=? and check_state='UNCHECKED'",content,m,p,number(b,"expectedVersion"))!=1) throw conflict("VERSION_CONFLICT","检查状态已变化，请重新打开材料");
+        var prior=getImport(p,m);String content=text(string(b,"text",262144));
+        String name=b.containsKey("name")?string(b,"name",200).strip():(String)prior.get("name");
+        if(db.update("update material_import set name=?,confirmed_text=?,check_state='CONFIRMED',row_version=row_version+1 where id=? and profile_id=? and row_version=? and check_state='UNCHECKED'",name,content,m,p,number(b,"expectedVersion"))!=1) throw conflict("VERSION_CONFLICT","检查状态已变化，请重新打开材料");
         return getImport(p,m);
+    }
+    public Map<String,Object> rename(UUID p,UUID m,Map<String,Object>b) {
+        getImport(p,m);String name=string(b,"name",200).strip();
+        if(db.update("update material_import set name=?,row_version=row_version+1 where id=? and profile_id=? and row_version=?",name,m,p,number(b,"expectedVersion"))!=1)
+            throw conflict("VERSION_CONFLICT","材料已变化，名称未覆盖。请重新打开材料后重试");
+        return getImport(p,m);
+    }
+    public Map<String,Object> replace(UUID p,UUID w,Map<String,Object>b) {
+        var current=resume(p,w);
+        if(!Boolean.TRUE.equals(current.get("initialized"))) throw conflict("NOT_INITIALIZED","尚无当前稿，请先建立当前稿");
+        int version=number(b,"expectedRevision");
+        if(((Number)current.get("revision")).intValue()!=version) throw conflict("VERSION_CONFLICT","当前简历已变化，未替换。请重新预览");
+        UUID source=id(b.get("sourceId"));var material=getImport(p,source);
+        if(!"CONFIRMED".equals(material.get("checkState"))) throw conflict("UNCHECKED","须先检查确认文本");
+        int sourceVersion=number(b,"expectedSourceRevision");
+        if(((Number)material.get("rowVersion")).intValue()!=sourceVersion) throw conflict("VERSION_CONFLICT","来源材料已变化，未替换。请重新预览");
+        db.update("insert into resume_revision(workspace_id,profile_id,revision,text,reason,source_kind,source_id,source_revision) values(?,?,?,?,'REPLACE','MATERIAL_REVISION',?,?)",w,p,version+1,material.get("confirmedText"),source,sourceVersion);
+        db.update("update current_resume set revision=?,client_edit_sequence=0 where workspace_id=? and profile_id=?",version+1,w,p);
+        db.update("delete from resume_source_binding where workspace_id=? and profile_id=?",w,p);
+        db.update("insert into resume_source_binding(workspace_id,profile_id,material_id) values(?,?,?)",w,p,source);
+        return resume(p,w);
     }
     public Map<String,Object> resume(UUID p,UUID w) {
         workspace(p,w);

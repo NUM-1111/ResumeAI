@@ -28,7 +28,46 @@ class WorkspaceIntegrationTest {
  UUID material(UUID p){return WorkspaceService.id(write(p,"test-import",Map.of(),()->s.importText(p,Map.of("name",UUID.randomUUID()+".txt","text","合成简历：参与接口设计"))).get("id"));}
  void confirm(UUID p,UUID m){write(p,"test-confirm",Map.of(),()->s.confirm(p,m,Map.of("text","合成简历：负责接口设计","expectedVersion",1)));}
  Map<String,Object> init(UUID p,UUID w,UUID m){return write(p,"test-init",Map.of(),()->s.initialize(p,w,Map.of("sourceType","MATERIAL_REVISION","sourceId",m.toString(),"expectedSourceRevision",2)));}
- @Test void confirmationIsolationAndIndependentCopy(){
+  @Test void renameAndConfirmNameArePersistentAndVersioned() throws Exception {
+   UUID p=profile(),q=profile(),m=material(p);
+   var body=Map.<String,Object>of("name","检查时改名.txt","text","确认后的正文","expectedVersion",1);
+   write(p,"confirm-name",body,()->s.confirm(p,m,body));
+   assertThat(s.getImport(p,m)).containsEntry("name","检查时改名.txt").containsEntry("confirmedText","确认后的正文");
+   String url="/api/v1/profiles/"+p+"/material-imports/"+m;
+   String key=UUID.randomUUID().toString();
+   for(int i=0;i<2;i++) mvc.perform(patch(url).with(user("operator")).with(csrf()).header("Idempotency-Key",key).contentType("application/json").content("{\"name\":\"确认后改名.txt\",\"expectedVersion\":2}"))
+     .andExpect(status().isOk()).andExpect(jsonPath("$.rowVersion").value(3));
+   assertThat(s.getImport(p,m)).containsEntry("name","确认后改名.txt").containsEntry("confirmedText","确认后的正文");
+   mvc.perform(patch(url).with(user("operator")).with(csrf()).header("Idempotency-Key",UUID.randomUUID()).contentType("application/json").content("{\"name\":\"过期名\",\"expectedVersion\":2}"))
+     .andExpect(status().isConflict());
+   mvc.perform(patch(url.replace(p.toString(),q.toString())).with(user("operator")).with(csrf()).header("Idempotency-Key",UUID.randomUUID()).contentType("application/json").content("{\"name\":\"跨档案\",\"expectedVersion\":3}"))
+     .andExpect(status().isNotFound());
+  }
+  @Test void replacementIsAtomicVersionedOwnedAndIdempotent() throws Exception {
+   UUID p=profile(),q=profile(),w=workspace(p),m=material(p),foreign=material(q);
+   UUID n=WorkspaceService.id(write(p,"second-source",Map.of(),()->s.importText(p,Map.of("name","第二份.txt","text","第二份合成简历"))).get("id"));
+   confirm(p,m);init(p,w,m);
+   var b=new HashMap<String,Object>(Map.of("sourceId",n.toString(),"expectedSourceRevision",1,"expectedRevision",1));
+   assertThatThrownBy(()->write(p,"replace-unchecked",b,()->s.replace(p,w,b))).hasMessageContaining("检查确认");
+   confirm(p,n);
+   b.put("expectedSourceRevision",2);b.put("sourceId",foreign.toString());
+   assertThatThrownBy(()->write(p,"replace-foreign",b,()->s.replace(p,w,b))).isInstanceOf(WorkspaceService.Failure.class);
+   b.put("sourceId",n.toString());b.put("expectedSourceRevision",1);
+   assertThatThrownBy(()->write(p,"replace-source-stale",b,()->s.replace(p,w,b))).hasMessageContaining("来源材料已变化");
+   b.put("expectedSourceRevision",2);b.put("expectedRevision",0);
+   assertThatThrownBy(()->write(p,"replace-current-stale",b,()->s.replace(p,w,b))).hasMessageContaining("当前简历已变化");
+   b.put("expectedRevision",1);
+   String url="/api/v1/profiles/"+p+"/workspaces/"+w+"/resume/replace",key=UUID.randomUUID().toString();
+   String payload="{\"sourceId\":\""+n+"\",\"expectedSourceRevision\":2,\"expectedRevision\":1}";
+   for(int i=0;i<2;i++)mvc.perform(post(url).with(user("operator")).with(csrf()).header("Idempotency-Key",key).contentType("application/json").content(payload))
+     .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(2));
+   assertThat(db.queryForList("select revision from resume_revision where workspace_id=? order by revision",w)).hasSize(2);
+   assertThat(db.queryForObject("select reason from resume_revision where workspace_id=? and revision=2",String.class,w)).isEqualTo("REPLACE");
+   assertThat(db.queryForObject("select material_id from resume_source_binding where workspace_id=?",UUID.class,w)).isEqualTo(n);
+   assertThat(db.queryForObject("select source_id from resume_revision where workspace_id=? and revision=1",UUID.class,w)).isEqualTo(m);
+   assertThatThrownBy(()->write(p,"old-tab-save",Map.of(),()->s.save(p,w,Map.of("text","旧标签稿","expectedRevision",1,"clientEditSequence",1)))).hasMessageContaining("未覆盖");
+  }
+  @Test void confirmationIsolationAndIndependentCopy(){
   UUID p=profile(),q=profile(),w=workspace(p),m=material(p);
   assertThatThrownBy(()->init(p,w,m)).isInstanceOf(WorkspaceService.Failure.class).hasMessageContaining("检查确认");
   assertThatThrownBy(()->s.resume(q,w)).isInstanceOf(WorkspaceService.Failure.class);

@@ -1,0 +1,103 @@
+"""Synthetic hierarchy/rename/replacement regression on an isolated HTTP port."""
+import subprocess
+import time
+import uuid
+from pathlib import Path
+from playwright.sync_api import sync_playwright, expect
+from local import ROOT, LOCAL, environment, listening
+from passwords import test_credentials
+
+PORT = 18081
+if listening(PORT):
+    raise SystemExit('Test port occupied; no process stopped')
+env, password = test_credentials(environment())
+env['SERVER_PORT'] = str(PORT)
+with (LOCAL/'navigation-server.log').open('a') as log:
+    server = subprocess.Popen(['java','-jar',str(ROOT/'target/agentcv-0.0.1-SNAPSHOT.jar')],cwd=ROOT,env=env,stdout=log,stderr=log)
+    try:
+        for _ in range(40):
+            if listening(PORT): break
+            if server.poll() is not None: raise RuntimeError('JAR exited')
+            time.sleep(1)
+        with sync_playwright() as pw:
+            browser=pw.chromium.launch(headless=True,args=['--no-sandbox'])
+            context=browser.new_context(viewport={'width':1440,'height':1000})
+            font=Path('/mnt/c/Windows/Fonts/msyh.ttc')
+            if font.is_file():
+                context.route('**/__test_font',lambda route:route.fulfill(body=font.read_bytes(),content_type='font/collection'))
+                context.add_init_script("document.addEventListener('DOMContentLoaded',()=>{const s=document.createElement('style');s.textContent=\"@font-face{font-family:TestChinese;src:url('/__test_font')}body,input,textarea,button{font-family:TestChinese,system-ui!important}\";document.head.append(s);});")
+            page=context.new_page();errors=[]
+            page.on('pageerror',lambda e:errors.append(str(e)))
+            page.goto(f'http://127.0.0.1:{PORT}/')
+            page.locator('[name=username]').fill('operator');page.locator('[name=password]').fill(password)
+            page.get_by_role('button',name='登录',exact=True).click()
+            def click(name): page.get_by_role('button',name=name,exact=True).click()
+            def fill(name,text): page.get_by_label(name,exact=True).fill(text)
+            click('＋ 新建档案');fill('新档案姓名','取消创建');click('取消')
+            expect(page.get_by_role('dialog')).to_have_count(0)
+            click('＋ 新建档案');click('创建档案')
+            expect(page.get_by_text('请填写新档案姓名',exact=True)).to_be_visible()
+            name='层级验收-'+str(uuid.uuid4())[:8]
+            fill('新档案姓名',name);click('创建档案')
+            expect(page.get_by_role('heading',name=name+' · 工作区')).to_be_visible()
+            expect(page.get_by_role('button',name='＋ 新建档案',exact=True)).to_have_count(0)
+            click('＋ 新建工作区');fill('工作区名称','取消区');click('取消')
+            click('＋ 新建工作区');click('创建独立工作区')
+            expect(page.get_by_text('请填写岗位方向',exact=True)).to_be_visible()
+            fill('工作区名称','主区');fill('岗位方向','Java');click('创建独立工作区')
+            expect(page.get_by_role('heading',name='工作区内容',exact=True)).to_be_visible()
+            click('＋ 添加简历材料');fill('材料名称','初名.txt');fill('材料检查文本','第一份合成简历')
+            page.once('dialog',lambda d:d.dismiss());click('返回当前简历')
+            expect(page.get_by_label('材料检查文本',exact=True)).to_have_value('第一份合成简历')
+            click('保存为待检查材料');fill('材料名称','确认时改名.txt');click('确认检查后的文本')
+            expect(page.get_by_role('button',name='确认时改名.txt · 已确认',exact=True)).to_be_visible()
+            click('作为当前简历');expect(page.get_by_label('当前简历',exact=True)).to_have_value('第一份合成简历')
+            fill('当前简历','自动保存后的第一份');expect(page.get_by_text('已保存',exact=True)).to_be_visible(timeout=10000)
+            expect(page.get_by_text('服务端修订',exact=False)).to_have_count(0)
+            click('重新载入已保存内容');expect(page.get_by_label('当前简历',exact=True)).to_have_value('自动保存后的第一份')
+            print('PASS: hierarchy/dialog cancel/inline validation/confirmation rename/autosave/reload',flush=True)
+            click('＋ 添加简历材料');fill('材料名称','第二份.txt');fill('材料检查文本','第二份待替换简历');click('保存为待检查材料');click('确认检查后的文本')
+            fill('材料名称','第二份改名.txt');click('保存材料名称');click('返回当前简历')
+            expect(page.get_by_label('当前简历',exact=True)).to_have_value('自动保存后的第一份')
+            click('第二份改名.txt · 已确认')
+            expect(page.locator('main').get_by_label('材料检查文本',exact=True)).to_have_value('第二份待替换简历')
+            assert page.locator('.actions textarea').count()==0
+            click('改用这份简历')
+            expect(page.get_by_label('替换前',exact=True)).to_have_value('自动保存后的第一份')
+            expect(page.get_by_label('替换后',exact=True)).to_have_value('第二份待替换简历')
+            click('取消');click('返回当前简历')
+            expect(page.get_by_label('当前简历',exact=True)).to_have_value('自动保存后的第一份')
+            # An old tab must not save over the replacement.
+            other=context.new_page();other.goto(page.url)
+            other.get_by_label('搜索人物',exact=True).fill(name);other.get_by_role('button',name='搜索',exact=True).click()
+            other.get_by_role('button',name=name,exact=True).click();other.get_by_role('button',name='主区 / Java',exact=True).click()
+            expect(other.get_by_label('当前简历',exact=True)).to_have_value('自动保存后的第一份')
+            click('第二份改名.txt · 已确认');click('改用这份简历');click('确认替换')
+            expect(page.get_by_label('当前简历',exact=True)).to_have_value('第二份待替换简历')
+            other.get_by_label('当前简历',exact=True).fill('旧标签内容不能覆盖')
+            expect(other.get_by_text('版本冲突 · 未保存',exact=True)).to_be_visible(timeout=10000)
+            expect(other.get_by_label('当前简历',exact=True)).to_have_value('旧标签内容不能覆盖')
+            other.close(run_before_unload=False)
+            print('PASS: central preview/rename reopen/replacement cancel and confirm/old tab conflict',flush=True)
+            # Preview tokens remain frozen while another tab saves a new current revision.
+            click('确认时改名.txt · 已确认');click('改用这份简历')
+            with page.expect_response(lambda r:'/resume' in r.url and r.request.method=='PUT'):
+                # Use authenticated browser fetch with a fresh CSRF token.
+                page.evaluate("""async()=>{const c=await (await fetch('/api/v1/csrf')).json();const path=location.origin+'/api/v1';const ps=await (await fetch(path+'/profiles?q='+encodeURIComponent(document.querySelector('main h2').textContent.split(' / ')[0]))).json();const p=ps.items[0].id;const ws=await (await fetch(path+'/profiles/'+p+'/workspaces')).json();const w=ws.items[0].id;const u=path+'/profiles/'+p+'/workspaces/'+w+'/resume';const r=await (await fetch(u)).json();await fetch(u,{method:'PUT',headers:{[c.headerName]:c.token,'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({text:'并发保存的新稿',expectedRevision:r.revision,clientEditSequence:1})});}""")
+            click('确认替换');expect(page.get_by_role('alert')).to_contain_text('当前简历已变化')
+            expect(page.get_by_role('dialog')).to_be_visible();click('取消');click('返回当前简历');click('重新载入已保存内容')
+            expect(page.get_by_label('当前简历',exact=True)).to_have_value('并发保存的新稿')
+            print('PASS: stale replacement preview rejected without overriding current text',flush=True)
+            page.screenshot(path=str(LOCAL/'s01-navigation-desktop.png'),full_page=True)
+            page.set_viewport_size({'width':390,'height':844})
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+            page.screenshot(path=str(LOCAL/'s01-navigation-mobile.png'),full_page=True)
+            click('← 返回工作区');expect(page.get_by_role('button',name='主区 / Java',exact=True)).to_be_visible()
+            click('← 返回个人档案');expect(page.get_by_role('heading',name='个人档案',exact=True)).to_be_visible()
+            assert not errors,errors
+            print('PASS: back navigation/mobile width/no browser runtime errors',flush=True)
+            browser.close()
+    finally:
+        server.terminate()
+        try: server.wait(timeout=15)
+        except subprocess.TimeoutExpired: server.kill();server.wait()

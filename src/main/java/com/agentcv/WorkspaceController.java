@@ -29,6 +29,9 @@ public class WorkspaceController {
         return ResponseEntity.status(201).body(write("POST/"+p+"/imports",key,b,p,()->service.importText(p,b)));
     }
     @GetMapping("/profiles/{p}/material-imports/{m}") Object getImport(@PathVariable UUID p,@PathVariable UUID m) {return service.getImport(p,m);}
+    @PatchMapping("/profiles/{p}/material-imports/{m}") Object rename(@PathVariable UUID p,@PathVariable UUID m,@RequestHeader("Idempotency-Key") String key,@RequestBody Map<String,Object>b) {
+        return write("RENAME/"+p+"/"+m,key,b,p,()->service.rename(p,m,b));
+    }
     @PostMapping("/profiles/{p}/material-imports/{m}/confirm") Object confirm(@PathVariable UUID p,@PathVariable UUID m,@RequestHeader("Idempotency-Key") String key,@RequestBody Map<String,Object>b) {
         return write("CONFIRM/"+p+"/"+m,key,b,p,()->service.confirm(p,m,b));
     }
@@ -38,5 +41,8 @@ public class WorkspaceController {
     }
     @PutMapping("/profiles/{p}/workspaces/{w}/resume") Object save(@PathVariable UUID p,@PathVariable UUID w,@RequestHeader("Idempotency-Key") String key,@RequestBody Map<String,Object>b) {
         return write("SAVE/"+p+"/"+w,key,b,p,()->service.save(p,w,b));
+    }
+    @PostMapping("/profiles/{p}/workspaces/{w}/resume/replace") Object replace(@PathVariable UUID p,@PathVariable UUID w,@RequestHeader("Idempotency-Key") String key,@RequestBody Map<String,Object>b) {
+        return write("REPLACE/"+p+"/"+w,key,b,p,()->service.replace(p,w,b));
     }
 }
