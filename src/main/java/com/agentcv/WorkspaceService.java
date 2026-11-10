@@ -84,14 +84,25 @@ public class WorkspaceService {
         });
     }
     public Map<String,Object> list(UUID p,String kind,int limit,UUID after) {
+        return list(p,kind,limit,after,"");
+    }
+    public Map<String,Object> list(UUID p,String kind,int limit,UUID after,String query) {
         if(limit<1 || limit>100) throw bad("分页大小须为1至100");
         String table=switch(kind) { case "profiles"->"profile";case "workspaces"->"workspace";case "material-imports"->"material_import";default->throw bad("列表类型无效"); };
         String fields=switch(kind) { case "profiles"->"id,display_name as \"displayName\"";case "workspaces"->"id,name,direction,row_version as \"rowVersion\"";default->"id,name,check_state as \"checkState\",row_version as \"rowVersion\""; };
         List<Object> params=new ArrayList<>(); String where=" where true";
         if(p!=null) { one("select id from profile where id=?",p);where+=" and profile_id=?";params.add(p); }
-        if(after!=null) {where+=" and id>?";params.add(after);}
+        String label=kind.equals("profiles")?"display_name":"name";
+        if(query!=null && !query.isBlank()) {
+            if(query.length()>200) throw bad("搜索词不能超过200字符");
+            where+=" and position(lower(?) in lower("+label+"))>0";params.add(query.strip());
+        }
+        if(after!=null) {
+            where+=" and ("+label+",id)>(select "+label+",id from "+table+" where id=?"+(p!=null?" and profile_id=?":"")+")";
+            params.add(after);if(p!=null) params.add(p);
+        }
         params.add(limit+1);
-        var rows=db.queryForList("select "+fields+" from "+table+where+" order by id limit ?",params.toArray());
+        var rows=db.queryForList("select "+fields+" from "+table+where+" order by "+label+",id limit ?",params.toArray());
         boolean more=rows.size()>limit; if(more) rows.remove(rows.size()-1);
         Map<String,Object> result=new LinkedHashMap<>();result.put("items",rows);
         result.put("nextCursor",more?rows.get(rows.size()-1).get("id"):null);return result;

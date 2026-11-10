@@ -7,7 +7,7 @@
 - 主工作树：`/root/java/ResumeAI`；交接主副本在其 `核心交接` 目录。
 - 验证数据库：`/var/lib/postgresql/resumeai-validation`，postgres 系统用户，权限 700，端口 `127.0.0.1:55432`。原 `/var/lib/postgresql/12/main` 不参与。
 - Java 17.0.15、Maven 3.6.3、Python 3.8.10；脚本明确使用 `/root/.nvm/versions/node/v22.22.2/bin` 下的 Node 22.22.2/npm 10.9.7。
-- Boot 3.5.16；Vue 3.5.45、TypeScript 5.9.3、Vite 8.3.4。前端完整传递依赖由 `frontend/package-lock.json` 固定；后端由固定 Boot parent/BOM 管理，实际树见 `docs/依赖树_ENV-02.txt`。
+- Boot 3.5.16；Vue 3.5.45、TypeScript 5.9.3、Vite 8.3.4。前端完整传递依赖由 `frontend/package-lock.json` 固定；后端由固定 Boot parent/BOM 管理，实际树见 `docs/历史环境/依赖树_ENV-02.txt`。
 - PostgreSQL 12.22 仅限批准的合成数据验证，正式版本未确定。完整维护/安全核查尚未完成。
 
 ## 构建与验证（WSL 终端）
@@ -87,8 +87,8 @@ python3 /root/java/ResumeAI/scripts/local.py db-stop
 
 ## 记录与限制
 
-完整操作步骤、测试数据、预期结果、接口核对及结果表见 [S01操作测试手册](docs/S01_操作测试手册.md)。执行后逐项填写实际结果，不能把手册存在视为测试通过。
+文档总入口：[文档导航](docs/README.md)。用户只参考 [页面验收简版](docs/用户指南/S01_用户验收简版.md)，不要求F12、UUID、接口或数据库核对；技术测试由助手执行。已有反馈不用重新记录，页面难用也是验收阻塞项。
 
-当前结果见 `/root/java/ResumeAI/开发进度.md`、`/root/java/ResumeAI/docs/S01_交付与验收记录.md`；待办与责任分工见 `/root/java/ResumeAI/docs/阶段核查与决策清单.md`。S01 已有9项后端测试、3项前端状态测试、真实Chromium流程及12项JAR HTTP检查通过；Windows主机到WSL的HTTP访问已验证。浏览器自动化不替代用户操作验收，完整AT01—AT21、安全及备份恢复尚未完成。ENV-02/03记录保留其当时结论，不作为当前总状态。
+当前结果见 `/root/java/ResumeAI/开发进度.md`、`/root/java/ResumeAI/docs/当前切片/S01_交付与验收记录.md`；待办与责任分工见 `/root/java/ResumeAI/docs/当前切片/阶段核查与决策清单.md`。S01 已有9项后端测试、3项前端状态测试、真实Chromium流程及12项JAR HTTP检查通过；Windows主机到WSL的HTTP访问已验证。浏览器自动化不替代用户操作验收，完整AT01—AT21、安全及备份恢复尚未完成。ENV-02/03记录保留其当时结论，不作为当前总状态。
 
 GitHub：https://github.com/NUM-1111/ResumeAI 。远程使用SSH，2026-11-09核查远程main与本地dd3dc0c一致；后续同步以 `git status` 和 `git ls-remote --heads origin` 为准。日常提交后使用普通 `git push`，不默认强推。

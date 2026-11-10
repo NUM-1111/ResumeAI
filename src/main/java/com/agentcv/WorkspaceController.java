@@ -13,18 +13,18 @@ public class WorkspaceController {
     Map<String,Object> write(String scope,String key,Map<String,Object>b,UUID p,Supplier<Map<String,Object>> action) {
         return service.write(scope,WorkspaceService.id(key),b,p,action);
     }
-    @GetMapping("/profiles") Object profiles(@RequestParam(defaultValue="25") int limit,@RequestParam(required=false) UUID after) {return service.list(null,"profiles",limit,after);}
+    @GetMapping("/profiles") Object profiles(@RequestParam(defaultValue="25") int limit,@RequestParam(required=false) UUID after,@RequestParam(defaultValue="") String q) {return service.list(null,"profiles",limit,after,q);}
     @PostMapping("/profiles") ResponseEntity<?> createProfile(@RequestHeader("Idempotency-Key") String key,@RequestBody Map<String,Object>b) {
         return ResponseEntity.status(201).body(write("POST/profiles",key,b,null,()->service.createProfile(b)));
     }
-    @GetMapping("/profiles/{p}/workspaces") Object workspaces(@PathVariable UUID p,@RequestParam(defaultValue="25") int limit,@RequestParam(required=false) UUID after) {return service.list(p,"workspaces",limit,after);}
+    @GetMapping("/profiles/{p}/workspaces") Object workspaces(@PathVariable UUID p,@RequestParam(defaultValue="25") int limit,@RequestParam(required=false) UUID after,@RequestParam(defaultValue="") String q) {return service.list(p,"workspaces",limit,after,q);}
     @PostMapping("/profiles/{p}/workspaces") ResponseEntity<?> createWorkspace(@PathVariable UUID p,@RequestHeader("Idempotency-Key") String key,@RequestBody Map<String,Object>b) {
         return ResponseEntity.status(201).body(write("POST/"+p+"/workspaces",key,b,p,()->service.createWorkspace(p,b)));
     }
     @PatchMapping("/profiles/{p}/workspaces/{w}") Object changeWorkspace(@PathVariable UUID p,@PathVariable UUID w,@RequestHeader("Idempotency-Key") String key,@RequestBody Map<String,Object>b) {
         return write("PATCH/"+p+"/"+w,key,b,p,()->service.changeWorkspace(p,w,b));
     }
-    @GetMapping("/profiles/{p}/material-imports") Object imports(@PathVariable UUID p,@RequestParam(defaultValue="25") int limit,@RequestParam(required=false) UUID after) {return service.list(p,"material-imports",limit,after);}
+    @GetMapping("/profiles/{p}/material-imports") Object imports(@PathVariable UUID p,@RequestParam(defaultValue="25") int limit,@RequestParam(required=false) UUID after,@RequestParam(defaultValue="") String q) {return service.list(p,"material-imports",limit,after,q);}
     @PostMapping("/profiles/{p}/material-imports") ResponseEntity<?> importText(@PathVariable UUID p,@RequestHeader("Idempotency-Key") String key,@RequestBody Map<String,Object>b) {
         return ResponseEntity.status(201).body(write("POST/"+p+"/imports",key,b,p,()->service.importText(p,b)));
     }

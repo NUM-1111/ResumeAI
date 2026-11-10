@@ -87,4 +87,26 @@ class WorkspaceIntegrationTest {
   mvc.perform(get("/api/v1/profiles/"+q+"/workspaces/"+w+"/resume").with(user("operator"))).andExpect(status().isNotFound());
   mvc.perform(get("/api/v1/profiles?limit=1").with(user("operator"))).andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(1)).andExpect(jsonPath("$.nextCursor").isNotEmpty());
  }
+ @Test void searchableNameOrderedPagesKeepOwnershipAndSameNameRows() {
+  new TransactionTemplate(manager).execute(status->{
+   UUID p=profile(),other=profile();
+   for(String name:List.of("C区","A区","A区","B区")) {
+    write(p,"page-test",Map.of(),()->s.createWorkspace(p,Map.of("name",name,"direction","Java")));
+   }
+   workspace(other);
+   @SuppressWarnings("unchecked")
+   var first=(List<Map<String,Object>>)s.list(p,"workspaces",2,null,"").get("items");
+   assertThat(first).extracting(x->x.get("name")).containsExactly("A区","A区");
+   var page=s.list(p,"workspaces",2,WorkspaceService.id(first.get(1).get("id")),"");
+   @SuppressWarnings("unchecked")
+   var second=(List<Map<String,Object>>)page.get("items");
+   assertThat(second).extracting(x->x.get("name")).containsExactly("B区","C区");
+   assertThat(page.get("nextCursor")).isNull();
+   @SuppressWarnings("unchecked")
+   var found=(List<Map<String,Object>>)s.list(p,"workspaces",10,null,"B区").get("items");
+   assertThat(found).hasSize(1);
+   assertThat(s.list(other,"workspaces",10,null,"B区").get("items")).isEqualTo(List.of());
+   status.setRollbackOnly();return null;
+  });
+ }
 }

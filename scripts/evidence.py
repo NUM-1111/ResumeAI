@@ -28,7 +28,9 @@ sql = ("SELECT current_database(), current_user;\n"
        "SELECT rolname, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname='agentcv_validation';\n")
 result = pg(PG / 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-h', DATA,
             '-p', '55432', '-d', 'agentcv_validation', input=sql, text=True, stdout=subprocess.PIPE)
-(ROOT / 'docs/数据库核查_ENV-02.txt').write_text(result.stdout)
+output = LOCAL / 'current-evidence'
+output.mkdir(exist_ok=True)
+(output / 'database.txt').write_text(result.stdout)
 print(result.stdout)
 
 files = []
@@ -39,5 +41,5 @@ for folder in (ROOT / 'src', ROOT / 'scripts', ROOT / 'frontend'):
         files.append(path)
 files += [ROOT / 'pom.xml', ROOT / 'README.md', ROOT / '.gitignore', ROOT / '.nvmrc']
 manifest = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(files)}
-(ROOT / 'docs/源码校验_ENV-02.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+(output / 'source-hashes.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
 print('Source files recorded:', len(manifest))
