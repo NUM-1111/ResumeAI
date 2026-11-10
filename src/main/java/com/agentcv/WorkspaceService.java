@@ -62,8 +62,8 @@ public class WorkspaceService {
         if(rows.isEmpty()) throw new Failure(404,"NOT_FOUND","对象在当前档案中不可用");
         return rows.get(0);
     }
-    void profile(UUID p) { one("select id from profile where id=? for update",p); }
-    Map<String,Object> workspace(UUID p,UUID w) { return one("select id,profile_id,name,direction,row_version from workspace where id=? and profile_id=?",w,p); }
+    void profile(UUID p) { one("select id from profile where id=? and recycle_batch is null for update",p); }
+    Map<String,Object> workspace(UUID p,UUID w) { return one("select w.id,w.profile_id,w.name,w.direction,w.row_version from workspace w join profile p on p.id=w.profile_id where w.id=? and w.profile_id=? and w.recycle_batch is null and p.recycle_batch is null",w,p); }
     public Map<String,Object> write(String scope,UUID key,Map<String,Object> body,UUID p,Supplier<Map<String,Object>> action) {
         return tx.execute(status->{
             // Serialize retries even for profile creation, without holding locks during remote calls.
@@ -90,8 +90,8 @@ public class WorkspaceService {
         if(limit<1 || limit>100) throw bad("分页大小须为1至100");
         String table=switch(kind) { case "profiles"->"profile";case "workspaces"->"workspace";case "material-imports"->"material_import";default->throw bad("列表类型无效"); };
         String fields=switch(kind) { case "profiles"->"id,display_name as \"displayName\"";case "workspaces"->"id,name,direction,row_version as \"rowVersion\"";default->"id,name,check_state as \"checkState\",row_version as \"rowVersion\""; };
-        List<Object> params=new ArrayList<>(); String where=" where true";
-        if(p!=null) { one("select id from profile where id=?",p);where+=" and profile_id=?";params.add(p); }
+        List<Object> params=new ArrayList<>(); String where=" where recycle_batch is null";
+        if(p!=null) { one("select id from profile where id=? and recycle_batch is null",p);where+=" and profile_id=?";params.add(p); }
         String label=kind.equals("profiles")?"display_name":"name";
         if(query!=null && !query.isBlank()) {
             if(query.length()>200) throw bad("搜索词不能超过200字符");
@@ -122,7 +122,8 @@ public class WorkspaceService {
         return Map.of("id",w,"name",name,"direction",direction,"rowVersion",version+1);
     }
     public Map<String,Object> getImport(UUID p,UUID m) {
-        return one("select id,name,extracted_text as \"extractedText\",confirmed_text as \"confirmedText\",check_state as \"checkState\",row_version as \"rowVersion\" from material_import where id=? and profile_id=?",m,p);
+        one("select id from profile where id=? and recycle_batch is null",p);
+        return one("select id,name,extracted_text as \"extractedText\",confirmed_text as \"confirmedText\",check_state as \"checkState\",row_version as \"rowVersion\" from material_import where id=? and profile_id=? and recycle_batch is null",m,p);
     }
     public Map<String,Object> importText(UUID p,Map<String,Object>b) {
         String name=string(b,"name",200);byte[] bytes;String content;
@@ -137,7 +138,7 @@ public class WorkspaceService {
             if(content.startsWith("\uFEFF")) content=content.substring(1);
         } else {content=string(b,"text",262144);bytes=content.getBytes(StandardCharsets.UTF_8);}
         text(content);String digest=hash(bytes);
-        boolean duplicate=!db.queryForList("select id from material_import where profile_id=? and (name=? or original_hash=?) limit 1",p,name,digest).isEmpty();
+        boolean duplicate=!db.queryForList("select id from material_import where profile_id=? and recycle_batch is null and (name=? or original_hash=?) limit 1",p,name,digest).isEmpty();
         if(duplicate && !Boolean.TRUE.equals(b.get("keepDuplicate"))) throw conflict("DUPLICATE","同名或相同材料已存在。可明确保留两份或取消；本切片不覆盖旧材料");
         UUID id=UUID.randomUUID();
         try {
