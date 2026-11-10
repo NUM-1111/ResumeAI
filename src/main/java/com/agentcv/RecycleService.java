@@ -33,7 +33,8 @@ public class RecycleService {
             db.queryForList("select id,name,direction,row_version,recycle_batch from workspace where profile_id=? order by id",p),
             db.queryForList("select id,name,row_version,recycle_batch from material_import where profile_id=? order by id",p),
             db.queryForList("select workspace_id,revision from current_resume where profile_id=? order by workspace_id",p),
-            db.queryForList("select workspace_id,material_id from resume_source_binding where profile_id=? order by workspace_id,material_id",p));
+            db.queryForList("select workspace_id,material_id from resume_source_binding where profile_id=? order by workspace_id,material_id",p),
+            db.queryForList("select workspace_id,material_id from workspace_material_reference where profile_id=? order by workspace_id,material_id",p));
         try {return WorkspaceService.hash(json.writeValueAsBytes(state));}catch(Exception e){throw new IllegalStateException(e);}
     }
     public Map<String,Object> preview(UUID p,String kind,UUID id) {
@@ -48,7 +49,9 @@ public class RecycleService {
             case "PROFILE"->"该档案及仍有效的工作区、材料一并进入回收站；恢复只恢复本次批次，不复活此前单独删除的内容。";
             case "WORKSPACE"->"工作区及其当前稿、历史在正常入口不可访问；档案共享材料及其他工作区不受影响。";
             default->"材料进入回收站，原件和历史出处保留；不会删除已保存简历正文，恢复不自动添加引用。";};
-        return Map.of("kind",kind,"id",id,"name",root.get("name"),"workspaceCount",workspaces,"materialCount",materials,"impact",impact,"bindings",dependents,"blocked",!dependents.isEmpty(),"impactVersion",WorkspaceService.hash((kind+id+stamp(p)).getBytes(StandardCharsets.UTF_8)));
+        var references=kind.equals("MATERIAL")?db.queryForList("select w.name from workspace_material_reference r join workspace w on w.id=r.workspace_id and w.profile_id=r.profile_id where r.material_id=? and r.profile_id=? order by w.name,w.id",id,p):List.of();
+        Map<String,Object> result=new LinkedHashMap<>(Map.of("kind",kind,"id",id,"name",root.get("name"),"workspaceCount",workspaces,"materialCount",materials,"impact",impact,"bindings",dependents,"blocked",!dependents.isEmpty(),"impactVersion",WorkspaceService.hash((kind+id+stamp(p)).getBytes(StandardCharsets.UTF_8))));
+        result.put("references",references);return result;
     }
     public Map<String,Object> recycle(UUID p,Map<String,Object>b) {
         lock(p);
@@ -60,6 +63,7 @@ public class RecycleService {
         UUID batch=UUID.randomUUID();
         db.update("insert into recycle_entry(id,profile_id,kind,object_id,name) values(?,?,?,?,?)",batch,p,kind,id,preview.get("name"));
         db.update("update "+table(kind)+" set recycle_batch=? where id=?",batch,id);
+        if(kind.equals("MATERIAL"))db.update("delete from workspace_material_reference where material_id=? and profile_id=?",id,p);
         if(kind.equals("PROFILE")) {
             db.update("update workspace set recycle_batch=? where profile_id=? and recycle_batch is null",batch,p);
             db.update("update material_import set recycle_batch=? where profile_id=? and recycle_batch is null",batch,p);

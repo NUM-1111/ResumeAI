@@ -24,9 +24,10 @@ public class WorkspaceService {
     private final TransactionTemplate tx;
     private final ObjectMapper json;
     private final Path materials;
+    private final DocumentParser parser;
     public WorkspaceService(JdbcTemplate db, PlatformTransactionManager manager, ObjectMapper json,
-            @Value("${agentcv.material-directory}") String directory) {
-        this.db=db; this.tx=new TransactionTemplate(manager); this.json=json; this.materials=Path.of(directory);
+            @Value("${agentcv.material-directory}") String directory, DocumentParser parser) {
+        this.db=db; this.tx=new TransactionTemplate(manager); this.json=json; this.materials=Path.of(directory);this.parser=parser;
     }
     public static class Failure extends RuntimeException {
         final int status; final String code;
@@ -89,7 +90,7 @@ public class WorkspaceService {
     public Map<String,Object> list(UUID p,String kind,int limit,UUID after,String query) {
         if(limit<1 || limit>100) throw bad("分页大小须为1至100");
         String table=switch(kind) { case "profiles"->"profile";case "workspaces"->"workspace";case "material-imports"->"material_import";default->throw bad("列表类型无效"); };
-        String fields=switch(kind) { case "profiles"->"id,display_name as \"displayName\"";case "workspaces"->"id,name,direction,row_version as \"rowVersion\"";default->"id,name,check_state as \"checkState\",row_version as \"rowVersion\""; };
+        String fields=switch(kind) { case "profiles"->"id,display_name as \"displayName\"";case "workspaces"->"id,name,direction,row_version as \"rowVersion\"";default->"id,name,material_kind as \"materialKind\",check_state as \"checkState\",row_version as \"rowVersion\""; };
         List<Object> params=new ArrayList<>(); String where=" where recycle_batch is null";
         if(p!=null) { one("select id from profile where id=? and recycle_batch is null",p);where+=" and profile_id=?";params.add(p); }
         String label=kind.equals("profiles")?"display_name":"name";
@@ -123,17 +124,19 @@ public class WorkspaceService {
     }
     public Map<String,Object> getImport(UUID p,UUID m) {
         one("select id from profile where id=? and recycle_batch is null",p);
-        return one("select id,name,extracted_text as \"extractedText\",confirmed_text as \"confirmedText\",check_state as \"checkState\",row_version as \"rowVersion\" from material_import where id=? and profile_id=? and recycle_batch is null",m,p);
+        return one("select id,name,material_kind as \"materialKind\",extracted_text as \"extractedText\",confirmed_text as \"confirmedText\",check_state as \"checkState\",row_version as \"rowVersion\" from material_import where id=? and profile_id=? and recycle_batch is null",m,p);
     }
     public Map<String,Object> importText(UUID p,Map<String,Object>b) {
         String name=string(b,"name",200);byte[] bytes;String content;
+        String kind=b.containsKey("materialKind")?string(b,"materialKind",20):"RESUME";
+        if(!Set.of("RESUME","REFERENCE").contains(kind))throw bad("材料类型无效");
         if(b.containsKey("text")==b.containsKey("base64")) throw bad("文本与文件必须二选一");
         if(b.containsKey("base64")) {
-            if(!name.toLowerCase(Locale.ROOT).endsWith(".txt")) throw new Failure(422,"UNSUPPORTED_FORMAT","本切片只支持.txt，请粘贴文本");
             try { bytes=Base64.getDecoder().decode(string(b,"base64",350000)); }
             catch(IllegalArgumentException e) { throw bad("文件编码无效"); }
             if(bytes.length>262144) throw new Failure(413,"TEXT_TOO_LARGE","文件超过256 KiB");
-            try {content=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();}
+            if(!name.toLowerCase(Locale.ROOT).endsWith(".txt"))content=parser.extract(name,bytes);
+            else try {content=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();}
             catch(CharacterCodingException e) {throw new Failure(422,"INVALID_ENCODING","文件不是有效UTF-8，请转为UTF-8或粘贴文本");}
             if(content.startsWith("\uFEFF")) content=content.substring(1);
         } else {content=string(b,"text",262144);bytes=content.getBytes(StandardCharsets.UTF_8);}
@@ -147,13 +150,14 @@ public class WorkspaceService {
             Files.createFile(file,PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
             Files.write(file,bytes);
         } catch(java.io.IOException e) {throw new Failure(503,"FILE_WRITE_FAILED","原件保存失败，未完成导入，请重试或复制文本");}
-        db.update("insert into material_import(id,profile_id,name,original_hash,storage_key,extracted_text) values(?,?,?,?,?,?)",id,p,name,digest,id,content);
+        db.update("insert into material_import(id,profile_id,name,original_hash,storage_key,extracted_text,material_kind) values(?,?,?,?,?,?,?)",id,p,name,digest,id,content,kind);
         return getImport(p,id);
     }
     public Map<String,Object> confirm(UUID p,UUID m,Map<String,Object>b) {
         var prior=getImport(p,m);String content=text(string(b,"text",262144));
         String name=b.containsKey("name")?string(b,"name",200).strip():(String)prior.get("name");
         if(db.update("update material_import set name=?,confirmed_text=?,check_state='CONFIRMED',row_version=row_version+1 where id=? and profile_id=? and row_version=? and check_state='UNCHECKED'",name,content,m,p,number(b,"expectedVersion"))!=1) throw conflict("VERSION_CONFLICT","检查状态已变化，请重新打开材料");
+        db.update("insert into material_confirmation(material_id,profile_id,revision,text) values(?,?,?,?)",m,p,number(b,"expectedVersion")+1,content);
         return getImport(p,m);
     }
     public Map<String,Object> rename(UUID p,UUID m,Map<String,Object>b) {
@@ -168,6 +172,7 @@ public class WorkspaceService {
         int version=number(b,"expectedRevision");
         if(((Number)current.get("revision")).intValue()!=version) throw conflict("VERSION_CONFLICT","当前简历已变化，未替换。请重新预览");
         UUID source=id(b.get("sourceId"));var material=getImport(p,source);
+        if(!"RESUME".equals(material.get("materialKind")))throw bad("辅助材料不能替换当前简历");
         if(!"CONFIRMED".equals(material.get("checkState"))) throw conflict("UNCHECKED","须先检查确认文本");
         int sourceVersion=number(b,"expectedSourceRevision");
         if(((Number)material.get("rowVersion")).intValue()!=sourceVersion) throw conflict("VERSION_CONFLICT","来源材料已变化，未替换。请重新预览");
@@ -190,7 +195,7 @@ public class WorkspaceService {
             var r=resume(p,source);if(!Boolean.TRUE.equals(r.get("initialized"))) throw conflict("NO_SOURCE","来源区尚无当前稿");
             if(((Number)r.get("revision")).intValue()!=expected) throw conflict("VERSION_CONFLICT","来源稿已变化");content=(String)r.get("text");
         } else if(type.equals("MATERIAL_REVISION")||type.equals("IMPORTED_REVISION")) {
-            var m=getImport(p,source);if(!m.get("checkState").equals("CONFIRMED")) throw conflict("UNCHECKED","须先检查确认文本");
+            var m=getImport(p,source);if(!"RESUME".equals(m.get("materialKind")))throw bad("辅助材料不能作为当前简历");if(!m.get("checkState").equals("CONFIRMED")) throw conflict("UNCHECKED","须先检查确认文本");
             if(((Number)m.get("rowVersion")).intValue()!=expected) throw conflict("VERSION_CONFLICT","来源材料已变化");content=(String)m.get("confirmedText");
         } else throw bad("不支持的来源类型");
         db.update("insert into resume_revision(workspace_id,profile_id,revision,text,reason,source_kind,source_id,source_revision) values(?,?,1,?,'INITIALIZE',?,?,?)",w,p,content,type,source,expected);

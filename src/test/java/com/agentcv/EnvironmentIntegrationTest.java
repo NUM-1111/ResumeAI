@@ -52,7 +52,7 @@ class EnvironmentIntegrationTest {
         assertThat(session).isNotNull();
         mvc.perform(get("/api/v1/environment").session(session)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.database").value("CONNECTED"))
-                .andExpect(jsonPath("$.migrationVersion").value("3"));
+                .andExpect(jsonPath("$.migrationVersion").value("4"));
         mvc.perform(get("/").session(session)).andExpect(status().isOk())
                 .andExpect(forwardedUrl("index.html"));
         mvc.perform(get("/index.html").session(session)).andExpect(status().isOk())

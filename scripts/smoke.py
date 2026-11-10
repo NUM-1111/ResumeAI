@@ -88,7 +88,7 @@ def main():
                 expect(status == 200 and len(body) > 0, 'same-origin asset served: ' + asset)
             status, body, _, _ = request('/api/v1/environment')
             result = json.loads(body)
-            expect(status == 200 and result['database'] == 'CONNECTED' and result['migrationVersion'] == '3'
+            expect(status == 200 and result['database'] == 'CONNECTED' and result['migrationVersion'] == '4'
                    and result['marker'] == '环境验证：中文持久化正常', 'real JDBC/Flyway response contains Chinese marker')
             expect(request('/logout', b'')[0] == 403, 'logout without CSRF returns 403')
             token = json.loads(request('/api/v1/csrf')[1])
