@@ -93,7 +93,7 @@ def main():
             expect(request('/logout', b'')[0] == 403, 'logout without CSRF returns 403')
             token = json.loads(request('/api/v1/csrf')[1])
             status, _, url, _ = request('/logout', b'', {token['headerName']: token['token']})
-            expect(status == 200 and '/login?logout' in url, 'logout with fresh CSRF succeeds')
+            expect(status == 200 and '/login?logout' in url, f'logout with fresh CSRF succeeds (status={status}, url={url})')
             expect(request('/api/v1/environment')[0] == 401, 'logged-out session cannot read API')
         finally:
             process.terminate()

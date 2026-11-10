@@ -35,8 +35,9 @@ createApp(defineComponent({setup(){
  async function leave(){clearTimeout(timer);if(sending){error.value='正在保存，请等待结果后切换';return false;}
   try{await flush();}catch(e){error.value=e instanceof Error?e.message:'保存失败';}
   if(editor.dirty&&!window.confirm('仍有未保存文本。建议取消并复制兜底。确定放弃页面编辑并离开吗？'))return false;
-  if(material.value?.checkState==='UNCHECKED'&&importText.value!==material.value.extractedText&&!window.confirm('检查文本有未提交修正，确定放弃修正吗？'))return false;return true;
+  if(importDirty()&&!window.confirm('材料文本尚未保存或检查修正尚未确认。取消可继续编辑；确定将放弃这些页面内容。'))return false;return true;
  }
+ function importDirty(){return material.value ? material.value.checkState==='UNCHECKED'&&importText.value!==material.value.extractedText : importText.value.length>0||uploaded.value!==null;}
  function resetImport(){material.value=null;importText.value='';uploaded.value=null;sourceMaterial.value='';sourceWorkspace.value='';}
  async function chooseProfile(p:Profile){if(!await leave())return;const ws=await all<Workspace>(`/profiles/${p.id}/workspaces`),ms=await all<Material>(`/profiles/${p.id}/material-imports`);profile.value=p;workspace.value=null;workspaces.value=ws;materials.value=ms;initialized.value=false;editor.load({});resetImport();}
  async function chooseWorkspace(w:Workspace){if(!await leave())return;const r=await api<Resume>(prefix()+`/workspaces/${w.id}/resume`);workspace.value=w;editor.load(r);initialized.value=!!r.initialized;resetImport();}
@@ -49,7 +50,7 @@ createApp(defineComponent({setup(){
  async function initialize(type:string,id:string,revision:number){const r=await api<Resume>(resumePath()+'/initialize','POST',{sourceType:type,sourceId:id,expectedSourceRevision:revision});editor.load(r);initialized.value=true;message.value='已建立独立当前稿并保存';}
  async function copy(){try{await navigator.clipboard.writeText(editor.text);message.value='已复制页面当前文本，保存状态未改变';}catch{fallback.value=true;error.value='剪贴板不可用，请在兜底文本框全选复制';}}
  async function fileSelected(e:Event){const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;if(!file.name.toLowerCase().endsWith('.txt')||file.size>262144)throw Error('仅支持不超过256 KiB的UTF-8 .txt');const bytes=new Uint8Array(await file.arrayBuffer());try{importText.value=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{throw Error('文件不是有效UTF-8，请转换或粘贴文本');}let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);uploaded.value=btoa(binary);importName.value=file.name;material.value=null;}
- onMounted(()=>{void task(async()=>{profiles.value=await all<Profile>('/profiles');});window.addEventListener('beforeunload',e=>{if(editor.dirty){e.preventDefault();e.returnValue='';}});});
+ onMounted(()=>{void task(async()=>{profiles.value=await all<Profile>('/profiles');});window.addEventListener('beforeunload',e=>{if(editor.dirty||importDirty()){e.preventDefault();e.returnValue='';}});});
  const button=(label:string,action:()=>Promise<void>,disabled=false)=>h('button',{disabled:busy.value||disabled,onClick:()=>task(action)},label);
  const input=(label:string,value:string,setter:(v:string)=>void,max=100)=>h('label',[label,h('input',{value,maxlength:max,onInput:(e:Event)=>setter((e.target as HTMLInputElement).value)})]);
  const states={CLEAN:'已保存',DIRTY:'未保存',SAVING:'保存中',FAILED:'保存失败 · 未保存',CONFLICT:'版本冲突 · 未保存'};

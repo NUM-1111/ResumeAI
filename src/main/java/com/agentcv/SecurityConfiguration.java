@@ -28,9 +28,10 @@ class SecurityConfiguration {
     SecurityFilterChain security(HttpSecurity http) throws Exception {
         http.addFilterBefore(new LoginRateFilter(),org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/csrf", "/error").permitAll()
+                        .requestMatchers("/api/v1/csrf", "/error", "/login").permitAll()
                         .anyRequest().authenticated())
-                .formLogin(form -> form.defaultSuccessUrl("/", true).permitAll())
+                .formLogin(form -> form.loginPage("/login").defaultSuccessUrl("/", true).permitAll())
+                .logout(logout -> logout.logoutSuccessUrl("/login?logout"))
                 .exceptionHandling(errors -> errors.defaultAuthenticationEntryPointFor(
                         new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
                         new AntPathRequestMatcher("/api/**")));
