@@ -1,94 +1,108 @@
-# AgentCV · S01 中文文本工作台
+# AgentCV · 工作区简历与个人材料（M03）
 
-S01基本交互与S02安全回收已获用户基本体验认可。开发库为官方PostgreSQL17.11，12保留停用。S03已实现DOCX/文本层PDF提取、材料用途和显式辅助引用，待用户新增体验；见 [S03使用](docs/用户指南/S03_导入与引用体验.md)。不接模型，不支持OCR、JD、历史恢复及完整备份维护；继续仅用合成数据。
+**最新状态：M00—M02 已完成，M03 技术验证通过，待用户体验确认。**现已支持独立个人材料、名称搜索、重命名、手动编辑文本、原件下载及多工作区参考设置。AI 尚未开放。新增体验步骤见 [M03 页面体验](docs/切片开发/M03/页面体验.md)，实现与限制见 [M03 开发与验证](docs/切片开发/M03/开发与验证.md)。若应用仍运行旧包，保存后 Ctrl+C，再按下文 WSL 命令 `run` 启动新包；不用重设口令。
 
-## 路径与固定工具
+当前按阶段设计重新推进。登录、人物/工作区、粘贴及上传建立工作区简历、复制、自动保存与重开，以及独立个人材料管理已实现；不自动改稿，不调用模型。
 
-- 主工作树：`/root/java/ResumeAI`；交接主副本在其 `核心交接` 目录。
-- 开发数据库：Docker容器 `agentcv-postgres17`、独立卷 `agentcv-postgres17-data`，仅 `127.0.0.1:55433`，镜像摘要见 `/root/java/ResumeAI/postgres17.lock.json`。旧12目录 `/var/lib/postgresql/resumeai-validation` 停用保留，原 `/var/lib/postgresql/12/main` 不参与。
-- Java 17.0.15、Maven 3.6.3、Python 3.8.10；脚本明确使用 `/root/.nvm/versions/node/v22.22.2/bin` 下的 Node 22.22.2/npm 10.9.7。
-- Boot 3.5.16；Vue 3.5.45、TypeScript 5.9.3、Vite 8.3.4。前端完整传递依赖由 `frontend/package-lock.json` 固定；后端由固定 Boot parent/BOM 管理，实际树见 `docs/历史环境/依赖树_ENV-02.txt`。
-- PostgreSQL17.11已完成导入和业务回归；完整维护/安全及通用备份恢复仍未完成。Docker需运行；WSL重启后执行db-start启动已有实例，不自动拉取镜像或回退12。
+## 首次使用（Ubuntu WSL，当前环境）
 
-## 构建与验证（WSL 终端）
+当前终端如显示 `root@Legancolie:~/java/ResumeAI#`，就是 Ubuntu WSL 的 Linux shell，直接执行下面的 `python3` 命令。无需 PowerShell、Windows Python 或修改 Windows PATH。
 
-**先辨认终端：**提示符为 `PS ...>` 时是 Windows PowerShell，即使目录为 `\\wsl.localhost\Ubuntu\root\java\ResumeAI`，直接输入 `python3` 也不会自动改用 Linux。不要在 PowerShell 中执行下面未带 `wsl.exe` 的 Linux 命令。
+前置条件：Docker 服务已运行，已有仓库锁定的 PostgreSQL 镜像；WSL 中具备 Java 17、Maven、本地 Maven 依赖缓存及固定 Node 22.22.2 环境。当前脚本面向本机已准备的环境，不是全新机器的一键安装器。前端 `npm ci` 仍可能需要访问 npm registry，Maven 构建使用离线缓存。
 
-### Windows PowerShell 入口（适用于当前 VS Code 终端）
-
-在当前工程目录执行：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\agentcv.ps1 status
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\agentcv.ps1 db-start
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\agentcv.ps1 run
-```
-
-`Bypass` 只作用于这次 PowerShell 子进程，不更改系统执行策略。入口固定进入 Ubuntu/root 和 Linux 工程目录，不使用 Windows Python。也可不经过脚本直接执行：
-
-```powershell
-wsl.exe -d Ubuntu -u root --cd /root/java/ResumeAI --exec /usr/bin/python3 /root/java/ResumeAI/scripts/local.py db-start
-wsl.exe -d Ubuntu -u root --cd /root/java/ResumeAI --exec /usr/bin/python3 /root/java/ResumeAI/scripts/local.py run
-```
-
-`run` 会持续占用终端并显示 Boot 日志，这是正常前台运行，不是卡住。等出现 `Started AgentCvApplication` 后再打开浏览器。停止按 Ctrl+C；如需停止数据库，应用退出后把最后一个参数改成 `db-stop`。
-
-已有 JAR 时查看页面只需 `db-start` 和 `run`，不必每次重新构建前端。改前端后需先 `frontend` 再 `verify`，仅 `frontend` 不会更新已经打包的 JAR。
-
-### Ubuntu WSL 终端内构建
+1. 准备专属开发数据库、构建前后端并运行后端测试，成功后再继续：
 
 ```bash
-cd /root/java/ResumeAI
-python3 /root/java/ResumeAI/scripts/local.py db-start
-python3 /root/java/ResumeAI/scripts/local.py frontend
-python3 /root/java/ResumeAI/scripts/local.py verify
-python3 /root/java/ResumeAI/scripts/smoke.py
+python3 /root/java/ResumeAI/scripts/skeleton.py verify
 ```
 
-`db-start` 只启动已核验标签及镜像的17容器，不创建未知实例，不启动12。前端使用npm ci；后端verify不跳过测试，前端必须先构建。Maven通过项目.local设置使用终端代理；Docker服务代理经用户单独批准配置，原配置已有备份。下载失败不静默换源。迁移详见 [17迁移记录](docs/当前切片/PostgreSQL17_迁移记录.md)。
-
-外部执行器有 30 秒限制时可用 `python3 /root/java/ResumeAI/scripts/task.py verify` 等启动独立任务，读取 `.local/verify.log`。日志中的成功/失败才是结果，PID 不代表成功。普通 WSL 终端优先使用前台命令。
-
-## 打开检查页面
+2. 首次使用设置**新工程**口令：
 
 ```bash
-python3 /root/java/ResumeAI/scripts/local.py run
+python3 /root/java/ResumeAI/scripts/skeleton.py set-password
 ```
 
-浏览器访问 `http://127.0.0.1:8080/`，用户名 **`operator`**。没有通用默认密码。请在 WSL 前台设置自己的 **6—32字符（含边界）**口令，输入不回显。旧密码不被自动替换，历史散列继续有效；下一次设置遵守新范围。中文等多字节输入另受BCrypt的72 UTF-8字节上限约束，超出明确拒绝，不截断：
+账号固定为 `operator`。口令需输入两遍，输入时不回显；允许 6—32 字符，同时不得超过 72 个 UTF-8 字节。仅保存 BCrypt 散列，不读取或自动迁入旧口令。日常启动不必重复设置；修改后需要重启应用生效。不要把口令发到聊天或提交到 Git。
+
+3. 启动应用：
 
 ```bash
-python3 /root/java/ResumeAI/scripts/local.py set-password
+python3 /root/java/ResumeAI/scripts/skeleton.py run
 ```
 
-然后启动/重启应用。不要把密码、`.local/credentials.json` 或其中数据库凭据发到聊天。测试使用临时内存口令，不修改你的登录口令。配置文件权限600、目录700。无注册、JWT或外发；局域模式、完整安全测试及备份未完成。
+等待终端出现 `Started AgentCvApplication` 后，打开 **http://127.0.0.1:8081/**，用 `operator` 和刚设置的口令登录。运行命令会占用当前终端，保持终端开启。
 
-登录后左侧逐层选择档案、工作区和材料，中央粘贴或上传UTF-8 .txt（256 KiB内），右侧保存待检查材料、确认并建立当前稿；确认材料也可预览后替换已有稿。中央编辑停止约900ms自动保存，失败保留页面文本。顶部回收站恢复软删除对象。无需Vite开发服务器或Windows Node；仅回环访问。
+当前环境已经构建并验证过；数据库仍运行时，你首次体验只需设置口令，再启动，不必重跑 `verify`。
 
-前台运行按 Ctrl+C 停止应用。
+## 日常启动、停止和重新构建
 
-如果终端已丢失、或重复run提示已经运行，可在另一个WSL终端安全停止本工程，再重新启动：
+当前 WSL 终端中，日常启动直接复制：
 
 ```bash
-python3 /root/java/ResumeAI/scripts/local.py status
-python3 /root/java/ResumeAI/scripts/local.py stop
-python3 /root/java/ResumeAI/scripts/local.py run
+python3 /root/java/ResumeAI/scripts/skeleton.py run
 ```
 
-stop只向已核对的本工程8080监听Java进程发SIGTERM，最多等待15秒，不强杀未知进程、不停止数据库。重复run已确认本工程在运行时只显示网页地址，不启动第二份，也不代表新密码或新JAR已被加载；改密码/构建后必须stop再run。PowerShell入口同样支持stop。
-
-停止验证数据库：
+如果 Docker/WSL 刚重启，先确保 Docker 服务已运行，再依次执行：
 
 ```bash
-python3 /root/java/ResumeAI/scripts/local.py db-stop
+python3 /root/java/ResumeAI/scripts/m00_database.py
+python3 /root/java/ResumeAI/scripts/skeleton.py run
 ```
 
-`smoke.py` 会自行启动和停止本轮 JAR，若 8080 已占用则失败，不终止未知进程。数据库数据保留，不执行删除或 Flyway clean。凭据丢失或目录状态不明时先检查，不自动清空重建。
+下文的 `run`、`verify` 等名称均指 `python3 /root/java/ResumeAI/scripts/skeleton.py` 的子命令，不是直接输入的 shell 命令。当前使用 Linux 终端，不执行 `powershell.exe` 或 `.ps1` 文件。
 
-## 记录与限制
+- 已完成首次准备且数据库仍在运行时，只执行 `run`，不用每次构建或改口令。
+- Docker/WSL 重启后，专属数据库不会自动启动。先启动 Docker，再在 WSL 执行 `python3 /root/java/ResumeAI/scripts/m00_database.py`，然后 `run`；也可执行 `verify`，但会同时构建和运行测试。
+- 停止应用前等待页面显示“已保存”，再在运行它的终端按 **Ctrl+C**。数据库保持独立运行；下次启动仍可读取已保存简历。刷新或关页不保证恢复未保存文字。
+- 修改代码后，先停止应用，再执行 `verify`；成功后重新 `run`。前端和后端统一打入 JAR，单独刷新浏览器不会加载尚未打包的代码。
+- 若提示端口占用，检查是否已启动应用；不要为启动新实例而结束未知进程。当前入口没有 `stop`、`status` 或 `db-start` 子命令，不使用旧 `scripts/local.py`。
 
-文档总入口：[文档导航](docs/README.md)。用户只参考 [页面验收简版](docs/用户指南/S01_用户验收简版.md)，不要求F12、UUID、接口或数据库核对；技术测试由助手执行。已有反馈不用重新记录，页面难用也是验收阻塞项。
+## M01 只需体验这条路径
 
-当前结果见 `/root/java/ResumeAI/开发进度.md`，数据库迁移见上述17记录。17上16项后端、12项JAR HTTP和五组Chromium通过，前端状态3项通过；完整AT01—AT21、安全及备份恢复尚未完成。历史ENV和各切片旧记录保留当时范围，不作为最新总状态。
+1. 创建“演示人物”，再创建工作区“后端版”，岗位方向填“Java 后端”。
+2. 在中间粘贴下面的合成简历，点击“预览并修正”，按需修改后点击“建立工作区简历”。
+3. 修改正文，等待“已保存”，再刷新页面，确认回到相同工作区且文字仍在。
+4. 左侧返回上层浏览时，正文应保留；选择其他人物/工作区才真正切换。有未保存内容时先保护输入。
 
-GitHub：https://github.com/NUM-1111/ResumeAI 。远程使用SSH，2026-11-09核查远程main与本地dd3dc0c一致；后续同步以 `git status` 和 `git ls-remote --heads origin` 为准。日常提交后使用普通 `git push`，不默认强推。
+```text
+合成候选人
+项目：订单演示系统
+职责：参与接口开发，协助部署。
+说明：仅用于软件体验，不是真实经历。
+```
+
+粘贴建立工作区简历不会添加个人材料，也不等于确认个人背景。上传和复制按 M02 指南体验；个人材料独立添加和选择参考，AI 尚未开放。
+
+用户已依据 M01 页面体验指南确认测试没有问题，本片已完成。上述步骤保留供后续回归；反馈只需说明“走到哪一步、看到什么、期望什么”，不需要 F12、UUID 或数据库检查。故障、冲突、幂等和登录失效由自动化验证。详细说明见 [M01 页面体验](docs/切片开发/M01/页面体验.md)。
+
+## 开发验证与 Ubuntu WSL 命令
+
+在 Ubuntu WSL 终端可直接执行：
+
+```bash
+python3 /root/java/ResumeAI/scripts/skeleton.py verify
+python3 /root/java/ResumeAI/scripts/skeleton.py smoke
+python3 /root/java/ResumeAI/scripts/skeleton.py set-password
+python3 /root/java/ResumeAI/scripts/skeleton.py run
+```
+
+| 命令 | 用途 |
+| --- | --- |
+| `verify` | 准备/启动专属数据库，执行 npm ci、类型检查、前端构建和 Maven clean verify，生成 JAR |
+| `smoke` | 使用已构建 JAR 和运行中的专属数据库，在 18081 启动临时测试应用并执行浏览器回归，结束后停止测试应用 |
+| `set-password` | 交互设置新工程操作者口令，仅保存散列 |
+| `run` | 使用已构建 JAR 和运行中的专属数据库，在 8081 前台启动 |
+
+`smoke` 是开发验证，不是日常使用前的必做步骤；需要 WSL 已有 Python Playwright 和 Chromium。它使用临时测试口令，不修改用户口令，但 `verify` 和 `smoke` 会向专属开发库写入合成测试数据，当前不会自动清理。接口测试通过不替代用户体验确认。
+
+失败时查看终端错误；浏览器回归服务端日志在 `.local/skeleton-smoke.log`，后端测试报告在 `target/surefire-reports/`。不要提交凭据文件、日志、数据库或包含个人资料的截图。
+
+## 数据隔离与文档入口
+
+新实现使用独立容器 `agentcv-m00-postgres`、回环端口 `55434`、数据库 `agentcv_m00` 和 schema `m00_app`，不连接旧 `55433` 数据库。新工程数据库凭据和操作者散列保存在受控的 `.local/m00/`，不进入 Git。旧数据库、原件和凭据仍保留，不自动迁入。
+
+- [阶段设计与开发计划](docs/README.md)
+- [切片开发记录](docs/切片开发/README.md)
+- [M01 开发与验证](docs/切片开发/M01/开发与验证.md)
+
+旧源码基线与本地副本见 [旧实现参考](legacy/README.md)，骨架清理范围见 [清理记录](docs/切片开发/M00/工程骨架清理记录.md)。
