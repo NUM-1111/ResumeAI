@@ -33,9 +33,9 @@ class M04IntegrationTest {
         UUID first=(UUID)service.send(p,w,UUID.randomUUID(),new ConversationService.Send("首个合成问题",false,0L,1L,Map.of(m.toString(),1L))).get("id");
         service.processPendingForTest(first);
         materials.reference(p,w,m,UUID.randomUUID(),new MaterialService.Reference(1L),false);
-        UUID second=(UUID)service.send(p,w,UUID.randomUUID(),new ConversationService.Send("新的一般问题",false,0L,2L,Map.of())).get("id");
+        UUID second=(UUID)service.send(p,w,UUID.randomUUID(),new ConversationService.Send("新的一般问题",false,0L,2L,Map.of(),2L,0L)).get("id");
         String snapshot=db.queryForObject("select input_json from ai_request where id=?",String.class,second);
-        assertThat(snapshot).doesNotContain("独特材料标记-STOP-REFERENCE","首个合成问题","旧回答保留其当时依据");
+        assertThat(snapshot).doesNotContain("独特材料标记-STOP-REFERENCE").contains("首个合成问题","旧回答保留其当时依据","当前有效资料白名单");
         assertThat(service.get(p,w,first)).containsEntry("answer","旧回答保留其当时依据").containsEntry("basis_changed",true);
         service.processPendingForTest(second);
     }
@@ -66,9 +66,9 @@ class M04IntegrationTest {
         service.processPendingForTest(id);service.processPendingForTest(id);
         assertThat(service.get(p,w,id).get("execution_status")).isEqualTo("UNKNOWN");
         verify(gateway,times(1)).complete(anyString());
-        assertThatThrownBy(()->service.send(p,w,UUID.randomUUID(),input)).isInstanceOfSatisfying(ApiFailure.class,e->assertThat(e.code).isEqualTo("UNKNOWN_REQUIRES_ACK"));
+        assertThatThrownBy(()->service.send(p,w,UUID.randomUUID(),new ConversationService.Send("合成问题",false,0L,0L,Map.of(),1L,0L))).isInstanceOfSatisfying(ApiFailure.class,e->assertThat(e.code).isEqualTo("UNKNOWN_REQUIRES_ACK"));
         service.acknowledgeUnknown(p,w,id);
-        UUID second=(UUID)service.send(p,w,UUID.randomUUID(),input).get("id");
+        UUID second=(UUID)service.send(p,w,UUID.randomUUID(),new ConversationService.Send("合成问题",false,0L,0L,Map.of(),1L,0L)).get("id");
         service.processPendingForTest(second);
         assertThat(second).isNotEqualTo(id);
     }
@@ -108,6 +108,6 @@ class M04IntegrationTest {
         while(System.nanoTime()<end&&!"SUCCEEDED".equals(service.get(p,w,id).get("execution_status")))Thread.sleep(50);
         assertThat(service.get(p,w,id)).containsEntry("execution_status","SUCCEEDED").containsEntry("answer","合成回答");
         verify(gateway,times(1)).complete(anyString());
-        assertThatThrownBy(()->service.send(p,w,UUID.randomUUID(),body)).isInstanceOfSatisfying(ApiFailure.class,e->assertThat(e.code).isEqualTo("VERSION_CONFLICT"));
+        assertThatThrownBy(()->service.send(p,w,UUID.randomUUID(),new ConversationService.Send("问题",true,1L,1L,Map.of(m.toString(),1L),2L,0L))).isInstanceOfSatisfying(ApiFailure.class,e->assertThat(e.code).isEqualTo("VERSION_CONFLICT"));
     }
 }

@@ -18,6 +18,7 @@ export const workbench = { setup() {
   const materialBusy=ref(false);
   const referenceCount=ref(0);
   const aiScopeRevision=ref(0);
+  let conversationGuard:(()=>Promise<boolean>)|null=null;
   async function refreshReferenceCount(){if(person.value&&workspace.value){const value=await request<{items:unknown[]}>(base()+'/references');referenceCount.value=value.items.length;}else referenceCount.value=0;}
   const upload=ref<{upload_id:string;original_name:string;limitation:string}|null>(null), origin=ref<Resume|null>(null), importing=ref(false), importError=ref('');
   const copyMode=ref(false), sources=ref<Workspace[]>([]), sourceQuery=ref(''), sourceCursor=ref<string|null>(null);
@@ -67,6 +68,7 @@ export const workbench = { setup() {
   }
   function close(){modal.value=null;pending=null;nextTick(()=>trigger?.focus());}
   async function leave(action:()=>Promise<void>){
+    if(conversationGuard&&!await conversationGuard())return;
     if(materialBusy.value){notice.value='个人材料正在保存，请等待完成后切换。';return;}
     if(materialDirty.value){if(!window.confirm('个人材料有未保存输入，明确放弃后切换？'))return;materialDirty.value=false;materialEpoch.value++;}
     clearTimeout(timer);if(flight)await flight;if(initialized.value&&dirty())await save();
@@ -211,7 +213,7 @@ export const workbench = { setup() {
         fallback.value?h('label',['供手动复制或核对的文本',h('textarea',{readonly:true,value:fallback.value,onFocus:(e:FocusEvent)=>(e.target as HTMLTextAreaElement).select()})]):null]),
       h('aside',{class:['ai',view.value==='document'?'mobile-hidden':'']},workspace.value&&person.value?[
         h(conversation,{key:workspace.value.id,profileId:person.value.id,workspaceId:workspace.value.id,scopeRevision:aiScopeRevision.value,
-          prepare:save,onAuth:()=>expired.value=true,onManage:()=>safe(()=>leave(async()=>{materialMode.value=true;view.value='document';}))})
+          prepare:save,onAuth:()=>expired.value=true,onGuard:(guard:()=>Promise<boolean>)=>conversationGuard=guard,onManage:()=>safe(()=>leave(async()=>{materialMode.value=true;view.value='document';}))})
       ]:[h('h2','AI 对话'),h('p','请选择工作区后开始对话。')])]),
     expired.value?h('div',{class:'overlay'},[h('section',{role:'dialog','aria-modal':'true','aria-label':'重新登录',onKeydown:trap},[loginForm(true)])]):null,
     modal.value?h('div',{class:'overlay'},[h('section',{role:'dialog','aria-modal':'true','aria-label':modal.value==='leave'?'未保存内容':modal.value==='person'?'新建档案':'新建工作区',onKeydown:trap},[

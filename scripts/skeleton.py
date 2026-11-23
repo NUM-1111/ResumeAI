@@ -85,6 +85,9 @@ def smoke(only=None):
             if only == 'm04-layout':
                 from browser_m04_layout import verify as layout_verify
                 layout_verify(18081,test_password)
+            if only == 'm05':
+                from browser_m05 import verify as m05_verify
+                m05_verify(18081,test_password)
         finally:
             process.terminate()
             try:
@@ -97,7 +100,7 @@ def smoke(only=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('command', choices=['verify', 'smoke', 'run', 'set-password'])
-    parser.add_argument('--slice', choices=['m01','m02','m03','m04-layout'], help='Run one browser slice; omitted runs ordinary business slices')
+    parser.add_argument('--slice', choices=['m01','m02','m03','m04-layout','m05'], help='Run one browser slice; omitted runs ordinary business slices')
     options = parser.parse_args()
     command = options.command
     if command == 'verify':

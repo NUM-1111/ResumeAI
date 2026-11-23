@@ -17,7 +17,7 @@ def verify(port,password):
         page.get_by_label('工作区名称',exact=True).fill('滚动区')
         page.get_by_label('岗位方向',exact=True).fill('Java')
         # All conversation data are local to this browser, not persisted or externally sent.
-        page.route('**/conversation',lambda route:route.fulfill(json={'requests':[
+        page.route('**/conversation?*',lambda route:route.fulfill(json={'requests':[
             {'id':str(i),'message':'合成问题','answer':'合成回答用于滚动验证。\n'*100,
              'execution_status':'SUCCEEDED','record_status':'SAVED','error_code':None,'model':'test'} for i in range(8)]}))
         page.get_by_role('button',name='创建',exact=True).click()
