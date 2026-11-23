@@ -1,0 +1,1 @@
+ALTER TABLE ai_request ADD COLUMN basis_json text NOT NULL DEFAULT '{}';

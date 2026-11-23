@@ -9,6 +9,7 @@ import subprocess
 import time
 import urllib.request
 import m00_database
+from model_environment import load_model_environment
 import getpass
 from passwords import bcrypt_hash, test_credentials
 
@@ -18,7 +19,7 @@ JAR = ROOT / 'target/agentcv-0.0.1-SNAPSHOT.jar'
 
 
 def environment():
-    env = m00_database.environment()
+    env = load_model_environment(m00_database.environment(), ROOT / '.env')
     env['PATH'] = str(NODE) + ':' + env['PATH']
     password_file = ROOT / '.local/m00/operator.hash'
     if password_file.exists():
@@ -32,6 +33,8 @@ def run(*args, cwd=ROOT):
     env = environment()
     if 'verify' in args:
         env, _ = test_credentials(env)
+        env['AGENTCV_DISABLE_AI_WORKER'] = 'true'
+        env.pop('DEEPSEEK_API_KEY', None)
     subprocess.run(args, cwd=cwd, env=env, check=True)
 
 
@@ -51,6 +54,9 @@ def smoke(only=None):
     log_path.parent.mkdir(exist_ok=True)
     with log_path.open('w') as log:
         test_env, test_password = test_credentials(environment())
+        # Ordinary browser regressions must never spend a configured model key.
+        test_env.pop('DEEPSEEK_API_KEY', None)
+        test_env['AGENTCV_DISABLE_AI_WORKER']='true'
         process = subprocess.Popen(['java', '-jar', str(JAR), '--server.port=18081'],
                                    cwd=ROOT, env=test_env, stdout=log, stderr=subprocess.STDOUT)
         try:
@@ -76,6 +82,9 @@ def smoke(only=None):
             if only is None or only == 'm03':
                 from browser_m03 import verify as browser_m03_verify
                 browser_m03_verify(18081,test_password)
+            if only == 'm04-layout':
+                from browser_m04_layout import verify as layout_verify
+                layout_verify(18081,test_password)
         finally:
             process.terminate()
             try:
@@ -88,7 +97,7 @@ def smoke(only=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('command', choices=['verify', 'smoke', 'run', 'set-password'])
-    parser.add_argument('--slice', choices=['m01','m02','m03'], help='Run one browser slice; omitted runs all')
+    parser.add_argument('--slice', choices=['m01','m02','m03','m04-layout'], help='Run one browser slice; omitted runs ordinary business slices')
     options = parser.parse_args()
     command = options.command
     if command == 'verify':

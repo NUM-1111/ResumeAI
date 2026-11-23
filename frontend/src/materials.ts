@@ -21,7 +21,7 @@ export const materials=defineComponent({
     function error(e:unknown){if(e instanceof ApiError&&(e.status===401||e.status===403))emit('auth');return e instanceof ApiError?e.message:'网络或服务暂不可用，输入仍保留。';}
     async function safe(action:()=>Promise<void>){try{await action();}catch(e){message.value=error(e);}}
     function canLeave(){if(busy.value){message.value='操作正在保存，请等待结果后切换。';return false;}return !dirty()||window.confirm('材料或参考设置尚未保存，明确放弃后将丢失本次输入。是否放弃？');}
-    function reset(){adding.value=false;editing.value=null;title.value='';text.value='';file.value=null;pending=null;mark();}
+    function reset(){adding.value=false;editing.value=null;title.value='';text.value='';file.value=null;fallback.value='';pending=null;mark();}
     async function refresh(append=false){const result=await request<{items:Material[];has_more:boolean}>(`${base()}/materials?q=${encodeURIComponent(query.value)}&offset=${append?items.value.length:0}`);items.value=append?[...items.value,...result.items]:result.items;more.value=result.has_more;}
     async function loadWorkspaces(){
       let after:string|null=null;const result:Workspace[]=[];
@@ -110,7 +110,10 @@ export const materials=defineComponent({
             btn('保存参考去向',()=>void saveTargets(),busy.value),
             btn('刷新参考状态',()=>safe(async()=>{await captureScopes();selected.value=await request<Material>(`${base()}/materials/${selected.value!.id}`);await loadScope();message.value='已刷新状态，勾选仍保留，请核对后保存。';mark();}),busy.value),
             h('p','同一材料由多个工作区共享。正文保存后，各引用区后续使用新文本；不改原件、工作区简历或背景，不触发 AI。')]):null,
-          fallback.value?h('label',['复制兜底 / 最新内容',h('textarea',{readonly:true,value:fallback.value,onFocus:(e:FocusEvent)=>(e.target as HTMLTextAreaElement).select()})]):null,
+          fallback.value?h('section',{'aria-label':'材料核对与复制'},[
+            btn('收起核对 / 复制内容',()=>{fallback.value='';message.value='已收起核对内容，本页编辑仍保留。';}),
+            h('p','最新已保存内容或复制备用文字（只读）；上方仍为本页编辑，未自动覆盖。'),
+            h('label',['复制兜底 / 最新内容',h('textarea',{readonly:true,value:fallback.value,onFocus:(e:FocusEvent)=>(e.target as HTMLTextAreaElement).select()})])]):null,
         ]),
       ]),
     ]);
