@@ -24,4 +24,5 @@ class ConversationController {
     @GetMapping("/profiles/{p}/workspaces/{w}/requests/{r}") Object request(@PathVariable UUID p,@PathVariable UUID w,@PathVariable UUID r){return service.get(p,w,r);}
     @PostMapping("/profiles/{p}/workspaces/{w}/requests/{r}/acknowledge-unknown") Object acknowledge(@PathVariable UUID p,@PathVariable UUID w,@PathVariable UUID r,@RequestHeader("Idempotency-Key") UUID key){return service.acknowledgeUnknown(p,w,r);}
     @PostMapping("/profiles/{p}/workspaces/{w}/requests/{r}/persist") Object persist(@PathVariable UUID p,@PathVariable UUID w,@PathVariable UUID r,@RequestHeader("Idempotency-Key") UUID key){return service.retryPersist(p,w,r);}
+    @PostMapping("/profiles/{p}/workspaces/{w}/requests/{r}/stop-waiting") Object stop(@PathVariable UUID p,@PathVariable UUID w,@PathVariable UUID r,@RequestHeader("Idempotency-Key") UUID key){return service.stopWaiting(p,w,r);}
 }

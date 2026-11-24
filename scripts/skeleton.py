@@ -35,11 +35,15 @@ def run(*args, cwd=ROOT):
         env, _ = test_credentials(env)
         env['AGENTCV_DISABLE_AI_WORKER'] = 'true'
         env.pop('DEEPSEEK_API_KEY', None)
+        env['SPRING_DATASOURCE_URL']='jdbc:postgresql://127.0.0.1:55434/agentcv_m00?currentSchema=m00_test'
+        env['SPRING_FLYWAY_DEFAULT_SCHEMA']='m00_test'
     subprocess.run(args, cwd=cwd, env=env, check=True)
 
 
 def verify():
     m00_database.prepare()
+    subprocess.run(['docker','exec','agentcv-m00-postgres','psql','-X','-v','ON_ERROR_STOP=1','-U','agentcv_m00','-d','agentcv_m00','-c',
+                    'CREATE SCHEMA IF NOT EXISTS m00_test AUTHORIZATION agentcv_m00_app'],check=True,stdout=subprocess.DEVNULL)
     run(str(NODE / 'npm'), 'ci', cwd=ROOT / 'frontend')
     run(str(NODE / 'npm'), 'run', 'build', cwd=ROOT / 'frontend')
     # clean is essential: deleted legacy classes/resources must not survive in the JAR.
@@ -47,6 +51,7 @@ def verify():
 
 
 def smoke(only=None):
+    m00_database.prepare()
     with socket.socket() as probe:
         if probe.connect_ex(('127.0.0.1', 18081)) == 0:
             raise RuntimeError('Smoke port 18081 is occupied; no process was stopped')
@@ -57,6 +62,8 @@ def smoke(only=None):
         # Ordinary browser regressions must never spend a configured model key.
         test_env.pop('DEEPSEEK_API_KEY', None)
         test_env['AGENTCV_DISABLE_AI_WORKER']='true'
+        test_env['SPRING_DATASOURCE_URL']='jdbc:postgresql://127.0.0.1:55434/agentcv_m00?currentSchema=m00_test'
+        test_env['SPRING_FLYWAY_DEFAULT_SCHEMA']='m00_test'
         process = subprocess.Popen(['java', '-jar', str(JAR), '--server.port=18081'],
                                    cwd=ROOT, env=test_env, stdout=log, stderr=subprocess.STDOUT)
         try:
@@ -88,6 +95,9 @@ def smoke(only=None):
             if only == 'm05':
                 from browser_m05 import verify as m05_verify
                 m05_verify(18081,test_password)
+            if only == 'm06':
+                from browser_m06 import verify as m06_verify
+                m06_verify(18081,test_password)
         finally:
             process.terminate()
             try:
@@ -100,7 +110,7 @@ def smoke(only=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('command', choices=['verify', 'smoke', 'run', 'set-password'])
-    parser.add_argument('--slice', choices=['m01','m02','m03','m04-layout','m05'], help='Run one browser slice; omitted runs ordinary business slices')
+    parser.add_argument('--slice', choices=['m01','m02','m03','m04-layout','m05','m06'], help='Run one browser slice; omitted runs ordinary business slices')
     options = parser.parse_args()
     command = options.command
     if command == 'verify':
@@ -122,4 +132,5 @@ if __name__ == '__main__':
     else:
         if not (ROOT / '.local/m00/operator.hash').exists():
             raise RuntimeError('先执行 set-password 设置新工程口令；不读取旧凭据')
+        m00_database.prepare()
         run('java', '-jar', str(JAR))

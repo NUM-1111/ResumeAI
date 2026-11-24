@@ -43,6 +43,7 @@ public class ConversationStateService {
                 throw new ApiFailure(409,"REQUEST_IN_PROGRESS","请等待本次回答结束并保存后再操作。");
             db.update("insert into conversation_state(workspace_id,version,epoch,boundary_at) values (?,1,1,clock_timestamp()) on conflict(workspace_id) do update set version=conversation_state.version+1,epoch=conversation_state.epoch+1,boundary_at=clock_timestamp()",w);
             if(clear){
+                db.update("update background_candidate set status='EXPIRED',items_json='[]',display_text='' where workspace_id=? and status='PENDING'",w);
                 // Keep operation tombstones, but no old message or request-body archive.
                 db.update("delete from conversation_message where workspace_id=?",w);
                 db.update("delete from operation where scope=?","DRAFT/"+p+"/"+w);

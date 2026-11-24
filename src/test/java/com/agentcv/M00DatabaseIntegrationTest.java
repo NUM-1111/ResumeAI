@@ -19,7 +19,7 @@ class M00DatabaseIntegrationTest {
     @Test void isolatedMigrationIsRepeatable() {
         assertThat(db.queryForObject("select current_database()", String.class)).isEqualTo("agentcv_m00");
         assertThat(db.queryForObject("select current_user", String.class)).isEqualTo("agentcv_m00_app");
-        assertThat(db.queryForObject("select current_schema()", String.class)).isEqualTo("m00_app");
+        assertThat(db.queryForObject("select current_schema()", String.class)).isEqualTo("m00_test");
         assertThat(db.queryForObject("select rolsuper from pg_roles where rolname=current_user", Boolean.class)).isFalse();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(db.queryForObject("select marker from engineering_baseline where id=1", String.class))

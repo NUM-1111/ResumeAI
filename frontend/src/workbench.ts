@@ -2,6 +2,7 @@ import { h, ref, onMounted, nextTick } from 'vue';
 import { request, ApiError } from './api';
 import { materials } from './materials';
 import { conversation } from './conversation';
+import { backgrounds } from './backgrounds';
 type Person = { id: string; display_name: string; created_at: string };
 type Workspace = { id: string; profile_id: string; name: string; direction: string; initialized: boolean; created_at: string; last_edited_at: string | null };
 type Resume = { initialized: boolean; text?: string; version: number; source_kind?:string; origin?:{original_name?:string;file_status?:string;source_workspace_name?:string}; file_warning?:string };
@@ -18,6 +19,7 @@ export const workbench = { setup() {
   const materialBusy=ref(false);
   const referenceCount=ref(0);
   const aiScopeRevision=ref(0);
+  const backgroundMode=ref(false);
   let conversationGuard:(()=>Promise<boolean>)|null=null;
   async function refreshReferenceCount(){if(person.value&&workspace.value){const value=await request<{items:unknown[]}>(base()+'/references');referenceCount.value=value.items.length;}else referenceCount.value=0;}
   const upload=ref<{upload_id:string;original_name:string;limitation:string}|null>(null), origin=ref<Resume|null>(null), importing=ref(false), importError=ref('');
@@ -81,10 +83,11 @@ export const workbench = { setup() {
     blocked.value=false;preview.value=false;op=null;state.value=result.initialized?'已保存':'';nav.value='contents';navOpen.value=false;
     origin.value=result;upload.value=null;copyMode.value=false;sourceResume.value=null;selectedSource.value=null;importError.value='';importGeneration++;
     materialMode.value=false;
+    backgroundMode.value=false;
     await refreshReferenceCount();
     localStorage.setItem('agentcv-m01-position',JSON.stringify({person:person.value,workspace:item}));
   });}
-  async function selectPerson(item:Person){await leave(async()=>{person.value=item;workspace.value=null;text.value='';saved.value='';initialized.value=false;materialMode.value=false;nav.value='workspaces';search.value='';await list();});}
+  async function selectPerson(item:Person){await leave(async()=>{person.value=item;workspace.value=null;text.value='';saved.value='';initialized.value=false;materialMode.value=false;backgroundMode.value=false;conversationGuard=null;nav.value='workspaces';search.value='';await list();});}
   async function create(){
     if(busy.value)return;
     if(!name.value.trim()){error.value='请填写名称。';return;}
@@ -173,12 +176,14 @@ export const workbench = { setup() {
         nav.value==='people'?button('＋新建档案',()=>safe(()=>leave(async()=>open('person')))):nav.value==='workspaces'?button('＋新建工作区',()=>safe(()=>leave(async()=>open('workspace')))):null,
         ...(nav.value==='people'?people.value.map(p=>h('div',{class:'item'},[button(p.display_name,()=>safe(()=>selectPerson(p))),h('small',date(p.created_at))])):
           nav.value==='workspaces'?workspaces.value.map(w=>h('div',{class:'item'},[button(w.name,()=>safe(()=>selectWorkspace(w))),h('small',`${w.direction} · ${date(w.last_edited_at)} · 创建 ${date(w.created_at)}`)])):
-          [button('工作区简历',()=>void safe(()=>leave(async()=>{materialMode.value=false;nav.value='contents';view.value='document';navOpen.value=false;})))]),
-        person.value?button('个人材料',()=>safe(()=>leave(async()=>{materialMode.value=true;view.value='document';navOpen.value=false;}))):null,
+          [button('工作区简历',()=>void safe(()=>leave(async()=>{backgroundMode.value=false;materialMode.value=false;nav.value='contents';view.value='document';navOpen.value=false;})))]),
+        person.value?button('个人材料',()=>safe(()=>leave(async()=>{backgroundMode.value=false;materialMode.value=true;view.value='document';navOpen.value=false;}))):null,
         nav.value!=='contents'&&cursor.value?button('加载更多',()=>safe(()=>list(true))):null,
         nav.value==='people'&&!people.value.length?h('p','尚无档案或搜索无结果。'):null,
         nav.value==='workspaces'&&!workspaces.value.length?h('p','尚无工作区或搜索无结果。'):null]),
-      h('main',{class:['document',view.value==='ai'?'mobile-hidden':'']},materialMode.value&&person.value?[
+      h('main',{class:['document',view.value==='ai'?'mobile-hidden':'']},backgroundMode.value&&person.value?[
+        h(backgrounds,{key:person.value.id,profileId:person.value.id,onAuth:()=>expired.value=true,onClose:()=>{backgroundMode.value=false;view.value='document';}})
+      ]:materialMode.value&&person.value?[
         h(materials,{key:person.value.id+'-'+materialEpoch.value,profileId:person.value.id,workspaceId:workspace.value?.id,guard:(value:boolean)=>materialDirty.value=value,
           onClose:()=>{materialMode.value=false;nav.value=workspace.value?'contents':'workspaces';search.value='';navOpen.value=false;view.value='document';aiScopeRevision.value++;void safe(async()=>{if(!workspace.value)await list();await refreshReferenceCount();});},onAuth:()=>{expired.value=true;},onBusy:(value:boolean)=>materialBusy.value=value,onScope:(value:number)=>{referenceCount.value=value;aiScopeRevision.value++;}})
       ]:[h('h1',workspace.value?'工作区简历':person.value?'建立第一份目标简历':'创建个人档案开始使用'),
@@ -213,7 +218,9 @@ export const workbench = { setup() {
         fallback.value?h('label',['供手动复制或核对的文本',h('textarea',{readonly:true,value:fallback.value,onFocus:(e:FocusEvent)=>(e.target as HTMLTextAreaElement).select()})]):null]),
       h('aside',{class:['ai',view.value==='document'?'mobile-hidden':'']},workspace.value&&person.value?[
         h(conversation,{key:workspace.value.id,profileId:person.value.id,workspaceId:workspace.value.id,scopeRevision:aiScopeRevision.value,
-          prepare:save,onAuth:()=>expired.value=true,onGuard:(guard:()=>Promise<boolean>)=>conversationGuard=guard,onManage:()=>safe(()=>leave(async()=>{materialMode.value=true;view.value='document';}))})
+          prepare:save,onAuth:()=>expired.value=true,onGuard:(guard:()=>Promise<boolean>)=>conversationGuard=guard,
+          onBackgrounds:()=>safe(()=>leave(async()=>{backgroundMode.value=true;materialMode.value=false;view.value='document';})),
+          onManage:()=>safe(()=>leave(async()=>{backgroundMode.value=false;materialMode.value=true;view.value='document';}))})
       ]:[h('h2','AI 对话'),h('p','请选择工作区后开始对话。')])]),
     expired.value?h('div',{class:'overlay'},[h('section',{role:'dialog','aria-modal':'true','aria-label':'重新登录',onKeydown:trap},[loginForm(true)])]):null,
     modal.value?h('div',{class:'overlay'},[h('section',{role:'dialog','aria-modal':'true','aria-label':modal.value==='leave'?'未保存内容':modal.value==='person'?'新建档案':'新建工作区',onKeydown:trap},[

@@ -13,23 +13,30 @@ import org.springframework.stereotype.Component;
 public class DeepSeekGateway implements ModelGateway {
     private final String key;
     private final ObjectMapper json;
+    private final URI endpoint;
+    private final Duration deadline;
     private final HttpClient client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15))
             .followRedirects(HttpClient.Redirect.NEVER).build();
-    public DeepSeekGateway(@Value("${DEEPSEEK_API_KEY:}") String key,ObjectMapper json){this.key=key;this.json=json;}
+    @org.springframework.beans.factory.annotation.Autowired
+    public DeepSeekGateway(@Value("${DEEPSEEK_API_KEY:}") String key,ObjectMapper json){this(key,json,URI.create("https://api.deepseek.com/chat/completions"),Duration.ofSeconds(60));}
+    DeepSeekGateway(String key,ObjectMapper json,URI endpoint,Duration deadline){this.key=key;this.json=json;this.endpoint=endpoint;this.deadline=deadline;}
     public boolean configured(){return !key.isBlank();}
     public String model(){return "deepseek-flash";}
     public Result complete(String inputJson){
         if(!configured())throw new Failure("MODEL_NOT_CONFIGURED",false);
         try{
-            HttpRequest request=HttpRequest.newBuilder(URI.create("https://api.deepseek.com/chat/completions"))
-                    .timeout(Duration.ofSeconds(120)).header("Authorization","Bearer "+key)
+            HttpRequest request=HttpRequest.newBuilder(endpoint)
+                    .timeout(deadline).header("Authorization","Bearer "+key)
                     .header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(inputJson)).build();
             // One send only; never retry a timeout or follow a redirect with credentials.
-            var response=client.send(request,HttpResponse.BodyHandlers.ofInputStream());
-            try(var stream=response.body()){
+            var pending=client.sendAsync(request,HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<byte[]> response;
+            try{response=pending.get(deadline.toMillis(),java.util.concurrent.TimeUnit.MILLISECONDS);}
+            catch(Exception failure){pending.cancel(true);throw failure;}
+            {
                 int status=response.statusCode();
                 if(status!=200)throw new Failure("SUPPLIER_HTTP_"+status,status>=500||status==408);
-                byte[] bytes=stream.readNBytes(2*1024*1024+1);
+                byte[] bytes=response.body();
                 if(bytes.length>2*1024*1024)throw new Failure("MODEL_RESPONSE_TOO_LARGE",true);
                 var result=json.readTree(bytes);
                 String answer=result.path("choices").path(0).path("message").path("content").asText("");

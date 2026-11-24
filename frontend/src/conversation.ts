@@ -1,10 +1,10 @@
 import { defineComponent,h,ref,onMounted,onBeforeUnmount,watch,PropType } from 'vue';
 import { request,ApiError } from './api';
-type Scope={resume_version:number;resume_available:boolean;scope_version:number;materials:{id:string;name:string;text_version:number;limitation:string}[]};
+type Scope={resume_version:number;resume_available:boolean;scope_version:number;background_count:number;materials:{id:string;name:string;text_version:number;limitation:string}[]};
 type Task={id:string;message:string;answer:string|null;execution_status:string;record_status:string;error_code:string|null;model:string;basis_changed?:boolean;created_at?:string};
 export const conversation=defineComponent({
   props:{profileId:{type:String,required:true},workspaceId:{type:String,required:true},prepare:{type:Function as PropType<()=>Promise<boolean>>,required:true},scopeRevision:Number},
-  emits:['auth','manage','guard'],
+  emits:['auth','manage','guard','backgrounds'],
   setup(props,{emit}){
     const scope=ref<Scope|null>(null),configured=ref(false),text=ref(''),reference=ref(true),tasks=ref<Task[]>([]),notice=ref(''),busy=ref(false);
     const referenceDialog=ref<HTMLDialogElement|null>(null),referenceButton=ref<HTMLButtonElement|null>(null);
@@ -12,6 +12,9 @@ export const conversation=defineComponent({
     const state=ref({version:0,epoch:0,boundary_at:'-infinity'}),draftVersion=ref(0),draftSaved=ref(''),draftStatus=ref(''),draftConflict=ref(false),menu=ref(false),historyCount=ref(50),reviewRequired=ref(false);
     let draftTimer:ReturnType<typeof setTimeout>|undefined,draftFlight:Promise<boolean>|null=null,draftOp:{signature:string;key:string}|null=null;
     const hasMore=ref(false);
+    type Candidate={id:string;version:number;request_id:string;display_text:string;items:string[]};
+    const candidate=ref<Candidate|null>(null),backgroundStatus=ref('');
+    let backgroundRetry:{candidate:Candidate;body:object;key:string}|null=null;
     let timer:ReturnType<typeof setTimeout>|undefined,alive=true,operation:{body:string;key:string}|null=null;
     const base=()=>`/api/v1/profiles/${props.profileId}/workspaces/${props.workspaceId}`;
     const active=()=>tasks.value.some(t=>['ACCEPTED','CALLING'].includes(t.execution_status)||t.record_status==='SAVE_FAILED');
@@ -59,6 +62,10 @@ export const conversation=defineComponent({
           const older=tasks.value.filter(task=>!values.some(newTask=>newTask.id===task.id));
           tasks.value=result.state&&result.state.epoch!==state.value.epoch?values:[...values,...older];hasMore.value=result.has_more??false;
           if(result.state)state.value=result.state;
+          const pending=await request<Partial<Candidate>>(base()+'/background-candidates');
+          if(alive)candidate.value=pending.id?pending as Candidate:null;
+          const actualBackgrounds=await request<{items:unknown[]}>(`/api/v1/profiles/${props.profileId}/backgrounds`);
+          if(alive&&scope.value)scope.value.background_count=actualBackgrounds.items.length;
         }
       }catch(e){if(alive)notice.value=failure(e);}
       finally{if(alive)timer=setTimeout(poll,1500);}
@@ -73,6 +80,14 @@ export const conversation=defineComponent({
       if(busy.value||active()||reviewRequired.value||!text.value.trim()||!scope.value)return;
       busy.value=true;notice.value='';
       try{
+        const latestCandidate=await request<Partial<Candidate>>(base()+'/background-candidates');
+        if(latestCandidate.id&&latestCandidate.id!==candidate.value?.id){notice.value='候选已更新，请先核对最新回答，再主动确认。';candidate.value=latestCandidate as Candidate;return;}
+        candidate.value=latestCandidate.id?latestCandidate as Candidate:null;
+        if(candidate.value){
+          const body={workspace_id:props.workspaceId,expected_version:candidate.value.version,displayed_text:candidate.value.display_text,user_text:text.value};
+          backgroundRetry={candidate:candidate.value,body,key:crypto.randomUUID()};
+          if(await confirmBackground())return;
+        }
         if(draftFlight)await draftFlight;
         if(reference.value&&!await props.prepare()){notice.value='简历未保存，本条消息未发送。';return;}
         // Preserve scope/version conditions unless user explicitly refreshes; resume save is intentional.
@@ -88,6 +103,19 @@ export const conversation=defineComponent({
         if(text.value===submitted){text.value='';void saveDraft();}
         else if(text.value!==draftSaved.value){void saveDraft();}
       }catch(e){notice.value=failure(e);if(e instanceof ApiError&&e.code==='CONVERSATION_CHANGED')reviewRequired.value=true;}finally{busy.value=false;}
+    }
+    async function confirmBackground():Promise<boolean>{
+      if(!backgroundRetry)return false;
+      const operation=backgroundRetry;const submitted=(operation.body as {user_text:string}).user_text;
+      try{
+        const result=await request<{items:{text:string}[]}>(`/api/v1/profiles/${props.profileId}/background-candidates/${operation.candidate.id}/confirm`,'POST',operation.body,operation.key);
+        if(!alive)return true;
+        backgroundStatus.value='已保存到个人背景：'+result.items.map(item=>item.text).join('；');
+        backgroundRetry=null;candidate.value=null;
+        if(text.value===submitted){text.value='';void saveDraft();}
+        await refreshScope();
+        return true;
+      }catch(e){if(!alive)return true;if(e instanceof ApiError&&e.code==='CONFIRMATION_UNCLEAR'){backgroundRetry=null;return false;}const stale=e instanceof ApiError&&['CANDIDATE_CHANGED','NOT_FOUND'].includes(e.code);if(stale)backgroundRetry=null;backgroundStatus.value=failure(e)+(stale?'':' 保存结果尚未确认，可直接重试；普通交流仍可继续。');return true;}
     }
     async function persist(task:Task){try{const updated=await request<Task>(base()+'/requests/'+task.id+'/persist','POST',{},crypto.randomUUID());tasks.value=tasks.value.map(t=>t.id===task.id?updated:t);}catch(e){notice.value=failure(e);}}
     async function saveDraft():Promise<boolean>{
@@ -111,7 +139,7 @@ export const conversation=defineComponent({
     }
     async function resetContext(clear:boolean){
       if(active()||busy.value)return;
-      const prompt=clear?'清空本区对话记录和输入草稿，界面无法恢复，不另存旧会话。简历、材料和背景不变。确认清空？':'后续不再携带此前聊天，旧消息仍可回看；简历、材料和背景范围不变。确认继续？';
+      const prompt=clear?'清空本区对话记录和输入草稿，界面无法恢复。若旧调用结果不明，供应商仍可能收费；清空后允许主动发送新问题。简历、材料和背景不变。确认清空？':'后续不再携带此前聊天，旧消息仍可回看；简历、材料和背景范围不变。确认继续？';
       if(!window.confirm(prompt))return;busy.value=true;
       try{
         if(draftFlight)await draftFlight;clearTimeout(draftTimer);
@@ -141,7 +169,8 @@ export const conversation=defineComponent({
         h('button',{disabled:active()||busy.value,onClick:()=>resetContext(true)},'清空记录并开始新对话'),
       ]):null,
       h('button',{ref:referenceButton,onClick:openReferences,'aria-haspopup':'dialog'},'参考资料'),
-      h('small',`${reference.value?'参考简历':'不参考简历'} · 参考材料：${scope.value?.materials.length??0} 份 · 背景：0 条`),
+      h('small',`${reference.value?'参考简历':'不参考简历'} · 参考材料：${scope.value?.materials.length??0} 份 · 背景：${scope.value?.background_count??0} 条`),
+      h('button',{onClick:()=>emit('backgrounds')},'查看个人背景'),
       h('p','发送时将使用上述资料范围，并调用所示模型服务。'),
       !configured.value?h('p','DeepSeek 密钥尚未配置，暂不能发送。'):null,
       h('small','按容量携带近期完整交流，较早聊天可能不参与本次回答；不会自动摘要。'),
@@ -156,6 +185,7 @@ export const conversation=defineComponent({
         task.basis_changed?h('p','此回答基于变更前的简历或材料，请核对；未自动重新调用。'):null,
         task.answer?h('div',[h('strong','AI 回答'),h('p',{style:{whiteSpace:'pre-wrap'}},task.answer),h('button',{onClick:()=>copy(task.answer!)},'复制回答')]):null,
         ['ACCEPTED','CALLING'].includes(task.execution_status)?h('p',task.execution_status==='ACCEPTED'?'请求已受理，正在等待执行…':'正在回答…'):null,
+        ['ACCEPTED','CALLING'].includes(task.execution_status)?h('button',{onClick:async()=>{if(!window.confirm('停止等待并允许发送新问题？供应商可能仍在执行并收费，无法撤回已发送内容；本次迟到结果将不再写入。'))return;try{const updated=await request<Task>(base()+'/requests/'+task.id+'/stop-waiting','POST',{},crypto.randomUUID());tasks.value=tasks.value.map(t=>t.id===task.id?updated:t);notice.value='已停止等待，可主动发送新问题。';}catch(e){notice.value=failure(e);}}},'停止等待'):null,
         task.record_status==='SAVE_FAILED'?h('div',[h('p','回答未保存，重开可能丢失。解决前暂停发送。'),h('button',{onClick:()=>persist(task)},'重试保存回答')]):null,
         task.execution_status==='MODEL_FAILED'?h('p',`模型调用失败（${task.error_code}）。未自动重试。`):null,
         task.execution_status==='UNKNOWN'?h('div',[h('p','调用结果不明，不会自动重调；重新调用可能重复收费。'),
@@ -164,6 +194,17 @@ export const conversation=defineComponent({
         state.value.epoch>0&&(!tasks.value.length||tasks.value.every(beforeBoundary))?h('p',{class:'context-boundary'},'后续对话不再携带以上聊天内容'):null,
       ]),
       h('p',{role:'status'},notice.value),
+      h('p',{role:'status'},backgroundStatus.value),
+      backgroundRetry?h('button',{disabled:busy.value,onClick:async()=>{busy.value=true;try{await confirmBackground();}finally{busy.value=false;}}},'重试保存背景'):null,
+      candidate.value?h('div',[
+        h('small','上方候选尚未保存。可直接保存全部，或回复只保存哪项。'),
+        h('button',{disabled:busy.value||active(),onClick:async()=>{
+          if(!candidate.value||busy.value||active())return;
+          const shown=candidate.value;
+          backgroundRetry={candidate:shown,body:{workspace_id:props.workspaceId,expected_version:shown.version,displayed_text:shown.display_text,user_text:'确认保存全部'},key:crypto.randomUUID()};
+          busy.value=true;try{await confirmBackground();}finally{busy.value=false;}
+        }},'保存全部候选'),
+      ]):null,
       reviewRequired.value?h('button',{onClick:()=>{reviewRequired.value=false;notice.value='已核对对话变化，请主动发送。';}},'已核对最新对话'):null,
       h('form',{onSubmit:(e:Event)=>{e.preventDefault();void send();}},[
         h('label',['向 AI 提问',h('textarea',{value:text.value,onInput:(e:Event)=>editDraft((e.target as HTMLTextAreaElement).value),
@@ -188,7 +229,7 @@ export const conversation=defineComponent({
               onChange:(e:Event)=>{void selectMaterial(material.id,(e.target as HTMLInputElement).checked);}}),material.name,
             material.limitation?h('small',material.limitation):null])),
           h('button',{disabled:referenceSaving.value,onClick:()=>{closeReferences();emit('manage');}},'打开个人材料管理')]),
-        h('fieldset',[h('legend','已确认个人背景'),h('p','共 0 条；背景整理尚未开放。开放后同人物全部有效背景参与，不逐条选择。')]),
+        h('fieldset',[h('legend','已确认个人背景'),h('p',`共 ${scope.value?.background_count??0} 条；同人物全部有效背景参与，不逐条选择。`),h('button',{onClick:()=>{closeReferences();emit('backgrounds');}},'查看已确认背景')]),
         h('p','停止参考不删除旧回答，也不撤回已发送的数据。旧聊天可能含相关内容，需要排除时可从对话菜单重置上下文。'),
         h('p',{role:'alert'},referenceError.value),
         h('button',{disabled:referenceSaving.value||referenceLoading.value,onClick:openReferences},'刷新参考资料'),
