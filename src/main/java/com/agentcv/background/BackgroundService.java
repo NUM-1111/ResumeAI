@@ -16,7 +16,11 @@ public class BackgroundService {
     public BackgroundService(JdbcTemplate db,WorkspaceService workspaces,ObjectMapper json){this.db=db;this.workspaces=workspaces;this.json=json;}
     public static final String PURPOSE="确认后供该人物各工作区的 AI 对话使用，不修改简历或材料。";
     public static final String PROTOCOL="\n背景候选协议：只输出 JSON 对象 {\"answer\":\"简短普通回答\",\"background_candidates\":[\"确切候选1\",\"确切候选2\"]}，无 markdown 围栏。无合适候选时数组为空。每次最多8项，每项最多1000字。候选只包含用户明确描述或请求整理的具体经历，不推断成果、数字或扩大职责。假设、拒绝、暂缓或含糊表达不形成确认。用户修正候选时先重新展示修正后的确切候选，不继承原确认。候选由系统统一展示，answer中不要重复候选、用途、确认指令或系统规则。当前有效背景已成功保存，不要重复请求确认或再次生成相同候选。你不能自行宣称新增背景已保存；实际有效背景以系统白名单为准。";
-    public record Output(String answer,List<String> items) {}
+    public static final String CHANGE_PROTOCOL="\n背景纠正/撤回：若用户明确要求改动一条现有背景，输出 background_action 对象 {\"id\":\"系统给出的背景UUID\",\"version\":1,\"old_text\":\"原文逐字匹配\",\"kind\":\"CORRECT或WITHDRAW\",\"new_text\":\"纠正后确切内容，撤回为null\"}，并令background_candidates为空；其余情况background_action为null。此对象仅提议，系统会展示前后内容并等待用户独立确认，你不能宣称已经执行。多条可能时先澄清，不猜目标。新描述与背景冲突时展示旧新差异，问是不同事件、纠正记录、仅讨论措辞还是暂缓；不同事件补事件范围后另行确认新增，措辞讨论不写背景，暂缓保留分歧但不反复追问、不阻断无关问题。历史撤回或纠正说明优先于旧聊天，旧记录不得继续当作当前事实，也不能重新作为新增候选恢复。";
+    public record Action(UUID id,long version,String old_text,String new_text,String kind) {}
+    public record Output(String answer,List<String> items,Action action) {
+        public Output(String answer,List<String> items){this(answer,items,null);}
+    }
     public Output decode(String raw){
         try{
             String value=raw.strip();if(value.startsWith("```json")&&value.endsWith("```"))value=value.substring(7,value.length()-3).strip();
@@ -27,10 +31,13 @@ public class BackgroundService {
                 if(!item.isTextual()||item.asText().isBlank()||item.asText().length()>1000)return new Output(node.path("answer").asText(),List.of());
                 items.add(item.asText().strip());
             }
-            return new Output(node.path("answer").asText(),items.stream().distinct().toList());
+            Action action=null;var proposal=node.path("background_action");
+            if(proposal.isObject())try{action=new Action(UUID.fromString(proposal.path("id").asText()),proposal.path("version").asLong(),proposal.path("old_text").asText(),proposal.path("new_text").isNull()?null:proposal.path("new_text").asText(),proposal.path("kind").asText());}catch(IllegalArgumentException ignored){}
+            return new Output(node.path("answer").asText(),action==null?items.stream().distinct().toList():List.of(),action);
         }catch(Exception ignored){return new Output(raw,List.of());}
     }
     public String display(Output output){
+        if(output.action!=null)return "背景变更提议尚未生效，请在下方核对确切记录后确认。";
         if(output.items.isEmpty())return output.answer;
         StringBuilder answer=new StringBuilder("待保存的个人背景：\n");
         for(int i=0;i<output.items.size();i++)answer.append(i+1).append(". ").append(output.items.get(i)).append('\n');

@@ -71,8 +71,8 @@ export const workbench = { setup() {
   function close(){modal.value=null;pending=null;nextTick(()=>trigger?.focus());}
   async function leave(action:()=>Promise<void>){
     if(conversationGuard&&!await conversationGuard())return;
-    if(materialBusy.value){notice.value='个人材料正在保存，请等待完成后切换。';return;}
-    if(materialDirty.value){if(!window.confirm('个人材料有未保存输入，明确放弃后切换？'))return;materialDirty.value=false;materialEpoch.value++;}
+    if(materialBusy.value){notice.value='资料正在保存，请等待完成后切换。';return;}
+    if(materialDirty.value){if(!window.confirm('资料有未保存输入或未确认变更，明确放弃本页编辑后切换？'))return;materialDirty.value=false;materialEpoch.value++;}
     clearTimeout(timer);if(flight)await flight;if(initialized.value&&dirty())await save();
     if(importing.value){notice.value='正在解析文件，请等待结束后切换。';return;}
     if(dirty()){pending=action;open('leave');return;}await action();
@@ -178,11 +178,14 @@ export const workbench = { setup() {
           nav.value==='workspaces'?workspaces.value.map(w=>h('div',{class:'item'},[button(w.name,()=>safe(()=>selectWorkspace(w))),h('small',`${w.direction} · ${date(w.last_edited_at)} · 创建 ${date(w.created_at)}`)])):
           [button('工作区简历',()=>void safe(()=>leave(async()=>{backgroundMode.value=false;materialMode.value=false;nav.value='contents';view.value='document';navOpen.value=false;})))]),
         person.value?button('个人材料',()=>safe(()=>leave(async()=>{backgroundMode.value=false;materialMode.value=true;view.value='document';navOpen.value=false;}))):null,
+        person.value&&workspace.value?button('查看个人背景',()=>safe(()=>leave(async()=>{backgroundMode.value=true;materialMode.value=false;view.value='document';navOpen.value=false;}))):null,
         nav.value!=='contents'&&cursor.value?button('加载更多',()=>safe(()=>list(true))):null,
         nav.value==='people'&&!people.value.length?h('p','尚无档案或搜索无结果。'):null,
         nav.value==='workspaces'&&!workspaces.value.length?h('p','尚无工作区或搜索无结果。'):null]),
       h('main',{class:['document',view.value==='ai'?'mobile-hidden':'']},backgroundMode.value&&person.value?[
-        h(backgrounds,{key:person.value.id,profileId:person.value.id,onAuth:()=>expired.value=true,onClose:()=>{backgroundMode.value=false;view.value='document';}})
+        h(backgrounds,{key:person.value.id+'-'+materialEpoch.value,profileId:person.value.id,workspaceId:workspace.value!.id,
+          onDirty:(value:boolean)=>materialDirty.value=value,onBusy:(value:boolean)=>materialBusy.value=value,
+          onAuth:()=>expired.value=true,onClose:()=>safe(()=>leave(async()=>{backgroundMode.value=false;view.value='document';}))})
       ]:materialMode.value&&person.value?[
         h(materials,{key:person.value.id+'-'+materialEpoch.value,profileId:person.value.id,workspaceId:workspace.value?.id,guard:(value:boolean)=>materialDirty.value=value,
           onClose:()=>{materialMode.value=false;nav.value=workspace.value?'contents':'workspaces';search.value='';navOpen.value=false;view.value='document';aiScopeRevision.value++;void safe(async()=>{if(!workspace.value)await list();await refreshReferenceCount();});},onAuth:()=>{expired.value=true;},onBusy:(value:boolean)=>materialBusy.value=value,onScope:(value:number)=>{referenceCount.value=value;aiScopeRevision.value++;}})

@@ -1,5 +1,6 @@
 import { defineComponent,h,ref,onMounted,onBeforeUnmount,watch,PropType } from 'vue';
 import { request,ApiError } from './api';
+import {BackgroundChange,changeBody,changePreview} from './backgroundChange';
 type Scope={resume_version:number;resume_available:boolean;scope_version:number;background_count:number;materials:{id:string;name:string;text_version:number;limitation:string}[]};
 type Task={id:string;message:string;answer:string|null;execution_status:string;record_status:string;error_code:string|null;model:string;basis_changed?:boolean;created_at?:string};
 export const conversation=defineComponent({
@@ -14,6 +15,8 @@ export const conversation=defineComponent({
     const hasMore=ref(false);
     type Candidate={id:string;version:number;request_id:string;display_text:string;items:string[]};
     const candidate=ref<Candidate|null>(null),backgroundStatus=ref('');
+    const change=ref<BackgroundChange|null>(null);let changeKey:string|null=null;
+    const changeOpen=ref(false);
     let backgroundRetry:{candidate:Candidate;body:object;key:string}|null=null;
     let timer:ReturnType<typeof setTimeout>|undefined,alive=true,operation:{body:string;key:string}|null=null;
     const base=()=>`/api/v1/profiles/${props.profileId}/workspaces/${props.workspaceId}`;
@@ -66,6 +69,9 @@ export const conversation=defineComponent({
           if(alive)candidate.value=pending.id?pending as Candidate:null;
           const actualBackgrounds=await request<{items:unknown[]}>(`/api/v1/profiles/${props.profileId}/backgrounds`);
           if(alive&&scope.value)scope.value.background_count=actualBackgrounds.items.length;
+          const proposed=await request<Partial<BackgroundChange>>(base()+'/background-changes');
+          const chatProposal=proposed.id&&proposed.source_request_id?proposed as BackgroundChange:null;
+          if(alive){if(chatProposal?.id!==change.value?.id){changeKey=null;changeOpen.value=false;}change.value=chatProposal;}
         }
       }catch(e){if(alive)notice.value=failure(e);}
       finally{if(alive)timer=setTimeout(poll,1500);}
@@ -80,6 +86,15 @@ export const conversation=defineComponent({
       if(busy.value||active()||reviewRequired.value||!text.value.trim()||!scope.value)return;
       busy.value=true;notice.value='';
       try{
+        if(change.value&&/^(确认|确认纠正|确认撤回|确认删除)[。！!]?\s*$/.test(text.value.trim())){
+          const submitted=text.value,shown=change.value;
+          if((submitted.includes('撤回')||submitted.includes('删除'))&&shown.kind!=='WITHDRAW'){notice.value='当前展示的是纠正提议，请核对后使用对应确认操作。';return;}
+          if(submitted.includes('纠正')&&shown.kind!=='CORRECT'){notice.value='当前展示的是撤回提议，请核对后使用对应确认操作。';return;}
+          changeKey??=crypto.randomUUID();
+          await request(`/api/v1/profiles/${props.profileId}/background-changes/${shown.id}/confirm`,'POST',changeBody(shown),changeKey);
+          change.value=null;changeKey=null;backgroundStatus.value='背景变更已生效。';
+          if(text.value===submitted){text.value='';void saveDraft();}await refreshScope();return;
+        }
         const latestCandidate=await request<Partial<Candidate>>(base()+'/background-candidates');
         if(latestCandidate.id&&latestCandidate.id!==candidate.value?.id){notice.value='候选已更新，请先核对最新回答，再主动确认。';candidate.value=latestCandidate as Candidate;return;}
         candidate.value=latestCandidate.id?latestCandidate as Candidate:null;
@@ -118,6 +133,12 @@ export const conversation=defineComponent({
       }catch(e){if(!alive)return true;if(e instanceof ApiError&&e.code==='CONFIRMATION_UNCLEAR'){backgroundRetry=null;return false;}const stale=e instanceof ApiError&&['CANDIDATE_CHANGED','NOT_FOUND'].includes(e.code);if(stale)backgroundRetry=null;backgroundStatus.value=failure(e)+(stale?'':' 保存结果尚未确认，可直接重试；普通交流仍可继续。');return true;}
     }
     async function persist(task:Task){try{const updated=await request<Task>(base()+'/requests/'+task.id+'/persist','POST',{},crypto.randomUUID());tasks.value=tasks.value.map(t=>t.id===task.id?updated:t);}catch(e){notice.value=failure(e);}}
+    async function applyChange(cancel=false){
+      if(!change.value||busy.value)return;busy.value=true;
+      try{const shown=change.value;changeKey??=crypto.randomUUID();await request(`/api/v1/profiles/${props.profileId}/background-changes/${shown.id}/`+(cancel?'dismiss':'confirm'),'POST',cancel?{workspace_id:props.workspaceId}:changeBody(shown),cancel?crypto.randomUUID():changeKey);
+        change.value=null;changeKey=null;backgroundStatus.value=cancel?'背景变更已取消。':'背景变更已生效。';await refreshScope();
+      }catch(e){backgroundStatus.value=failure(e);}finally{busy.value=false;}
+    }
     async function saveDraft():Promise<boolean>{
       clearTimeout(draftTimer);
       if(draftFlight){const ok=await draftFlight;return ok&&text.value!==draftSaved.value?saveDraft():ok;}
@@ -170,7 +191,7 @@ export const conversation=defineComponent({
       ]):null,
       h('button',{ref:referenceButton,onClick:openReferences,'aria-haspopup':'dialog'},'参考资料'),
       h('small',`${reference.value?'参考简历':'不参考简历'} · 参考材料：${scope.value?.materials.length??0} 份 · 背景：${scope.value?.background_count??0} 条`),
-      h('button',{onClick:()=>emit('backgrounds')},'查看个人背景'),
+      h('small','个人背景可从左侧导航查看、纠正或撤回。'),
       h('p','发送时将使用上述资料范围，并调用所示模型服务。'),
       !configured.value?h('p','DeepSeek 密钥尚未配置，暂不能发送。'):null,
       h('small','按容量携带近期完整交流，较早聊天可能不参与本次回答；不会自动摘要。'),
@@ -182,7 +203,7 @@ export const conversation=defineComponent({
         state.value.epoch>0&&!beforeBoundary(task)&&(index===0||beforeBoundary(ordered[index-1]))?h('p',{class:'context-boundary'},'后续对话不再携带以上聊天内容'):null,
         h('article',[
         h('strong','你的问题'),h('p',task.message),
-        task.basis_changed?h('p','此回答基于变更前的简历或材料，请核对；未自动重新调用。'):null,
+        task.basis_changed?h('p','此回答基于变更前的背景、简历或材料，请核对；未自动重新调用。'):null,
         task.answer?h('div',[h('strong','AI 回答'),h('p',{style:{whiteSpace:'pre-wrap'}},task.answer),h('button',{onClick:()=>copy(task.answer!)},'复制回答')]):null,
         ['ACCEPTED','CALLING'].includes(task.execution_status)?h('p',task.execution_status==='ACCEPTED'?'请求已受理，正在等待执行…':'正在回答…'):null,
         ['ACCEPTED','CALLING'].includes(task.execution_status)?h('button',{onClick:async()=>{if(!window.confirm('停止等待并允许发送新问题？供应商可能仍在执行并收费，无法撤回已发送内容；本次迟到结果将不再写入。'))return;try{const updated=await request<Task>(base()+'/requests/'+task.id+'/stop-waiting','POST',{},crypto.randomUUID());tasks.value=tasks.value.map(t=>t.id===task.id?updated:t);notice.value='已停止等待，可主动发送新问题。';}catch(e){notice.value=failure(e);}}},'停止等待'):null,
@@ -195,6 +216,8 @@ export const conversation=defineComponent({
       ]),
       h('p',{role:'status'},notice.value),
       h('p',{role:'status'},backgroundStatus.value),
+      change.value?h('button',{onClick:()=>{backgroundStatus.value='';changeOpen.value=true;}},'核对并确认背景变更'):null,
+      change.value&&changeOpen.value?changePreview(change.value,()=>applyChange(),()=>{changeOpen.value=false;},busy.value,backgroundStatus.value):null,
       backgroundRetry?h('button',{disabled:busy.value,onClick:async()=>{busy.value=true;try{await confirmBackground();}finally{busy.value=false;}}},'重试保存背景'):null,
       candidate.value?h('div',[
         h('small','上方候选尚未保存。可直接保存全部，或回复只保存哪项。'),
