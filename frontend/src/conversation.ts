@@ -210,6 +210,7 @@ export const conversation=defineComponent({
         task.record_status==='SAVE_FAILED'?h('div',[h('p','回答未保存，重开可能丢失。解决前暂停发送。'),h('button',{onClick:()=>persist(task)},'重试保存回答')]):null,
         task.execution_status==='MODEL_FAILED'?h('p',`模型调用失败（${task.error_code}）。未自动重试。`):null,
         task.execution_status==='UNKNOWN'?h('div',[h('p','调用结果不明，不会自动重调；重新调用可能重复收费。'),
+          task.error_code==='RESULT_LOST_ON_RESTART'?h('p','应用已重启，之前尚未保存的回答暂存已丢失；若页面仍有回答请先复制。不会重新调用模型恢复。'):null,
           task.error_code!=='UNKNOWN_ACKNOWLEDGED'?h('button',{onClick:async()=>{if(window.confirm('供应商可能已经执行原调用。确认承担重复费用风险并允许下一次主动发送？'))try{await request(base()+'/requests/'+task.id+'/acknowledge-unknown','POST',{},crypto.randomUUID());notice.value='已记录风险确认；请主动输入并发送，不会自动调用。';}catch(e){notice.value=failure(e);}}},'确认风险，允许下一次发送'):null]):null,
       ])])),
         state.value.epoch>0&&(!tasks.value.length||tasks.value.every(beforeBoundary))?h('p',{class:'context-boundary'},'后续对话不再携带以上聊天内容'):null,

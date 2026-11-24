@@ -58,7 +58,7 @@ class M02IntegrationTest {
     @Test void fileFailureCanRetryWithoutRecreatingResume() throws Exception {
         UUID p=person(),w=workspace(p);byte[] data="文件故障测试".getBytes(StandardCharsets.UTF_8);
         var upload=files.stage(p,w,"故障.txt",data);
-        var root=java.nio.file.Path.of(".local/m00/resume-files");
+        var root=java.nio.file.Path.of(System.getenv().getOrDefault("AGENTCV_FILES_ROOT",".local/m00/resume-files"));
         var temporary=root.resolve("tmp-"+upload.id());var hidden=root.resolve("held-"+upload.id());
         java.nio.file.Files.move(temporary,hidden);
         try {
@@ -86,7 +86,7 @@ class M02IntegrationTest {
         UUID p=person(),w=workspace(p);
         var upload=files.stage(p,w,"保留.txt","原件".getBytes(StandardCharsets.UTF_8));
         service.establish(p,w,UUID.randomUUID(),new WorkspaceService.EstablishInput("正文",0L,upload.id(),null,null));
-        var root=java.nio.file.Path.of(".local/m00/resume-files");
+        var root=java.nio.file.Path.of(System.getenv().getOrDefault("AGENTCV_FILES_ROOT",".local/m00/resume-files"));
         var referenced=root.resolve("file-"+upload.id());
         var orphan=root.resolve("file-"+UUID.randomUUID());
         var temporary=root.resolve("tmp-"+UUID.randomUUID());

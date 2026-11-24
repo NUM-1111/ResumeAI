@@ -57,6 +57,15 @@ def verify(port,password):
             page.wait_for_timeout(1700)
         assert polled.value.json().get('source_request_id') is None
         expect(page.locator('aside').get_by_role('button',name='核对并确认背景变更',exact=True)).to_have_count(0)
+        # Recovery must not require clearing chat or creating another proposal.
+        page.reload()
+        page.locator('nav').get_by_role('button',name='查看个人背景',exact=True).click()
+        resume=page.get_by_role('button',name='继续处理待确认背景变更',exact=True)
+        expect(resume).to_be_visible()
+        expect(page.locator('aside').get_by_role('button',name='核对并确认背景变更',exact=True)).to_have_count(0)
+        resume.click()
+        expect(preview).to_be_visible()
+        expect(preview).to_contain_text('项目A仅协助部署')
         # A failed save stays inside the modal, keeping exact content available for retry.
         page.route('**/background-changes/*/confirm',lambda route:route.fulfill(status=503,json={'code':'PERSISTENCE_FAILED','message':'合成保存故障，请重试','retryable':True}))
         preview.get_by_role('button',name='确认纠正',exact=True).click()

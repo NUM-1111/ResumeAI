@@ -29,8 +29,13 @@ public class ConversationService {
     private final ScheduledExecutorService worker=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"ai-worker");t.setDaemon(true);return t;});
     private final ConcurrentMap<UUID,ModelGateway.Result> unsaved=new ConcurrentHashMap<>();
     private final ConcurrentMap<UUID,Thread> running=new ConcurrentHashMap<>();
-    private java.nio.channels.FileChannel instanceChannel;
-    private java.nio.channels.FileLock instanceLock;
+    private WorkerGuard instanceGuard;
+    private volatile boolean stopping;
+    private long nextMaintenance;
+    @org.springframework.beans.factory.annotation.Autowired private RequestRecovery recovery;
+    @org.springframework.beans.factory.annotation.Autowired private com.agentcv.document.ResumeFiles files;
+    @org.springframework.beans.factory.annotation.Value("${agentcv.ai.max-active:4}") private int maxActive=4;
+    @org.springframework.beans.factory.annotation.Value("${agentcv.ai.worker-lock:.local/m00/ai-worker.lock}") private String workerLock;
     public ConversationService(JdbcTemplate db,TransactionTemplate tx,ObjectMapper json,WorkspaceService workspaces,MaterialService materials,ModelGateway gateway,BackgroundService backgrounds,BackgroundChangeService backgroundChanges){this.db=db;this.tx=tx;this.json=json;this.workspaces=workspaces;this.materials=materials;this.gateway=gateway;this.backgrounds=backgrounds;this.backgroundChanges=backgroundChanges;}
     public record Send(String message,boolean reference_resume,Long expected_resume_version,Long expected_scope_version,Map<String,Long> material_versions,Long expected_conversation_version,Long expected_context_epoch) {
         public Send(String message,boolean reference_resume,Long expected_resume_version,Long expected_scope_version,Map<String,Long> material_versions){this(message,reference_resume,expected_resume_version,expected_scope_version,material_versions,0L,0L);}
@@ -41,16 +46,14 @@ public class ConversationService {
     @PostConstruct void start(){
         if(Boolean.parseBoolean(System.getenv().getOrDefault("AGENTCV_DISABLE_AI_WORKER","false")))return;
         try{
-            var path=java.nio.file.Path.of(".local/m00/ai-worker.lock");java.nio.file.Files.createDirectories(path.getParent());
-            instanceChannel=java.nio.channels.FileChannel.open(path,java.nio.file.StandardOpenOption.CREATE,java.nio.file.StandardOpenOption.WRITE);
-            instanceLock=instanceChannel.tryLock();
-            if(instanceLock==null)throw new IllegalStateException("AI worker already running for this project");
+            if(maxActive<1||maxActive>16)throw new IllegalStateException("AI admission limit must be between 1 and 16");
+            instanceGuard=new WorkerGuard(java.nio.file.Path.of(workerLock));
         }catch(java.io.IOException e){throw new IllegalStateException("Cannot acquire AI worker lock");}
         // Single application instance: no lease re-dispatch after possible external send.
-        db.update("update ai_request set execution_status='UNKNOWN',error_code='MODEL_RESULT_UNKNOWN',record_status='SAVED' where execution_status='CALLING'");
+        try{recovery.recover();}catch(RuntimeException error){try{instanceGuard.close();}catch(java.io.IOException ignored){}throw error;}
         worker.scheduleWithFixedDelay(this::tick,0,500,TimeUnit.MILLISECONDS);
     }
-    @PreDestroy void stop(){worker.shutdownNow();try{if(instanceLock!=null)instanceLock.release();if(instanceChannel!=null)instanceChannel.close();}catch(java.io.IOException ignored){}}
+    @PreDestroy void stop(){stopping=true;worker.shutdownNow();try{if(worker.awaitTermination(5,TimeUnit.SECONDS)&&instanceGuard!=null)instanceGuard.close();}catch(InterruptedException error){Thread.currentThread().interrupt();}catch(java.io.IOException ignored){} /* If still executing, retain lock until process exit. */}
     public Map<String,Object> config(){return Map.of("provider","DeepSeek","model",gateway.model(),"configured",gateway.configured());}
     public Map<String,Object> scope(UUID p,UUID w){
         var resume=workspaces.resume(p,w);var scope=materials.scope(p,w);
@@ -81,7 +84,7 @@ public class ConversationService {
                 throw new ApiFailure(409,"UNKNOWN_REQUIRES_ACK","前一次调用结果不明，请先确认重复费用风险再发起新调用。");
             if(db.queryForObject("select count(*) from ai_request where workspace_id=? and (execution_status in ('ACCEPTED','CALLING') or record_status='SAVE_FAILED')",Integer.class,w)>0)
                 throw new ApiFailure(409,"REQUEST_IN_PROGRESS","此工作区正在回答或结果尚未保存，请查看原请求。");
-            if(db.queryForObject("select count(*) from ai_request where execution_status in ('ACCEPTED','CALLING') or record_status='SAVE_FAILED'",Integer.class)>=4)
+            if(db.queryForObject("select count(*) from ai_request where execution_status in ('ACCEPTED','CALLING') or record_status='SAVE_FAILED'",Integer.class)>=maxActive)
                 throw new ApiFailure(429,"REQUEST_LIMIT","全局受理上限已达到，请稍后再试，输入仍保留。");
             var snapshot=buildInput(p,w,input);
             db.update("update background_candidate set status='EXPIRED' where workspace_id=? and status='PENDING'",w);
@@ -172,7 +175,11 @@ public class ConversationService {
     private void tick(UUID only){
         try{
             // No thread/connection is held open while waiting for an external response.
-            if(unsaved.size()>=4)return;
+            if(stopping||unsaved.size()>=maxActive)return;
+            if(only==null&&System.currentTimeMillis()>=nextMaintenance){
+                nextMaintenance=System.currentTimeMillis()+TimeUnit.HOURS.toMillis(1);
+                try{recovery.cleanup();files.cleanup();}catch(Exception ignored){/* Fail closed; maintenance does not block execution. */}
+            }
             Map<String,Object> task=tx.execute(status->{
                 var rows=db.queryForList("select id,input_json from ai_request where execution_status='ACCEPTED' and model=? and (?::uuid is null or id=?::uuid) order by created_at limit 1 for update skip locked",gateway.model(),only,only);
                 if(rows.isEmpty())return null;var row=rows.get(0);
@@ -183,7 +190,6 @@ public class ConversationService {
             try{
                 if(!"CALLING".equals(db.queryForObject("select execution_status from ai_request where id=?",String.class,id)))return;
                 var result=gateway.complete((String)task.get("input_json"));
-                if(!"CALLING".equals(db.queryForObject("select execution_status from ai_request where id=?",String.class,id)))return;
                 unsaved.put(id,result);
                 persist(id,result);
             }catch(ModelGateway.Failure failure){

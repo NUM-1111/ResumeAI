@@ -29,9 +29,10 @@ public class DeepSeekGateway implements ModelGateway {
                     .timeout(deadline).header("Authorization","Bearer "+key)
                     .header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(inputJson)).build();
             // One send only; never retry a timeout or follow a redirect with credentials.
-            var pending=client.sendAsync(request,HttpResponse.BodyHandlers.ofByteArray());
+            var pending=client.sendAsync(request,info->new BoundedBody());
             HttpResponse<byte[]> response;
             try{response=pending.get(deadline.toMillis(),java.util.concurrent.TimeUnit.MILLISECONDS);}
+            catch(java.util.concurrent.ExecutionException failure){pending.cancel(true);if(failure.getCause() instanceof Failure known)throw known;throw failure;}
             catch(Exception failure){pending.cancel(true);throw failure;}
             {
                 int status=response.statusCode();
@@ -49,5 +50,22 @@ public class DeepSeekGateway implements ModelGateway {
         }catch(Failure e){throw e;}
         catch(InterruptedException e){Thread.currentThread().interrupt();throw new Failure("MODEL_RESULT_UNKNOWN",true);}
         catch(Exception e){throw new Failure("MODEL_RESULT_UNKNOWN",true);}
+    }
+    /** Enforce the cap while receiving, not after an unbounded allocation. */
+    private static final class BoundedBody implements HttpResponse.BodySubscriber<byte[]> {
+        private final java.util.concurrent.CompletableFuture<byte[]> body=new java.util.concurrent.CompletableFuture<>();
+        private final java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+        private java.util.concurrent.Flow.Subscription subscription;
+        public java.util.concurrent.CompletionStage<byte[]> getBody(){return body;}
+        public void onSubscribe(java.util.concurrent.Flow.Subscription value){subscription=value;value.request(1);}
+        public void onNext(java.util.List<java.nio.ByteBuffer> buffers){
+            for(var buffer:buffers){
+                if(buffer.remaining()>2*1024*1024-bytes.size()){subscription.cancel();body.completeExceptionally(new Failure("MODEL_RESPONSE_TOO_LARGE",true));return;}
+                byte[] part=new byte[buffer.remaining()];buffer.get(part);bytes.writeBytes(part);
+            }
+            subscription.request(1);
+        }
+        public void onError(Throwable error){body.completeExceptionally(error);}
+        public void onComplete(){body.complete(bytes.toByteArray());}
     }
 }

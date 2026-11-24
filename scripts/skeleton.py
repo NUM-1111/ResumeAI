@@ -37,6 +37,7 @@ def run(*args, cwd=ROOT):
         env.pop('DEEPSEEK_API_KEY', None)
         env['SPRING_DATASOURCE_URL']='jdbc:postgresql://127.0.0.1:55434/agentcv_m00?currentSchema=m00_test'
         env['SPRING_FLYWAY_DEFAULT_SCHEMA']='m00_test'
+        env['AGENTCV_FILES_ROOT']=str(ROOT / '.local/m00-test/resume-files')
     subprocess.run(args, cwd=cwd, env=env, check=True)
 
 
@@ -64,6 +65,7 @@ def smoke(only=None):
         test_env['AGENTCV_DISABLE_AI_WORKER']='true'
         test_env['SPRING_DATASOURCE_URL']='jdbc:postgresql://127.0.0.1:55434/agentcv_m00?currentSchema=m00_test'
         test_env['SPRING_FLYWAY_DEFAULT_SCHEMA']='m00_test'
+        test_env['AGENTCV_FILES_ROOT']=str(ROOT / '.local/m00-test/resume-files')
         process = subprocess.Popen(['java', '-jar', str(JAR), '--server.port=18081'],
                                    cwd=ROOT, env=test_env, stdout=log, stderr=subprocess.STDOUT)
         try:
