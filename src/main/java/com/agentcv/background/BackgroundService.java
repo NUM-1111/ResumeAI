@@ -23,9 +23,10 @@ public class BackgroundService {
     }
     public Output decode(String raw){
         try{
-            String value=raw.strip();if(value.startsWith("```json")&&value.endsWith("```"))value=value.substring(7,value.length()-3).strip();
-            var node=json.readTree(value);
-            if(!node.isObject()||!node.path("answer").isTextual()||node.path("answer").asText().isBlank())return new Output(raw,List.of());
+            var objects=protocolObjects(raw);
+            if(objects.size()!=1)return fallback(raw);
+            var node=objects.get(0);
+            if(!node.path("answer").isTextual()||node.path("answer").asText().isBlank())return fallback(raw);
             List<String> items=new ArrayList<>();var list=node.path("background_candidates");
             if(list.isArray()&&list.size()<=8)for(var item:list){
                 if(!item.isTextual()||item.asText().isBlank()||item.asText().length()>1000)return new Output(node.path("answer").asText(),List.of());
@@ -34,12 +35,33 @@ public class BackgroundService {
             Action action=null;var proposal=node.path("background_action");
             if(proposal.isObject())try{action=new Action(UUID.fromString(proposal.path("id").asText()),proposal.path("version").asLong(),proposal.path("old_text").asText(),proposal.path("new_text").isNull()?null:proposal.path("new_text").asText(),proposal.path("kind").asText());}catch(IllegalArgumentException ignored){}
             return new Output(node.path("answer").asText(),action==null?items.stream().distinct().toList():List.of(),action);
-        }catch(Exception ignored){return new Output(raw,List.of());}
+        }catch(Exception ignored){return fallback(raw);}
+    }
+    private Output fallback(String raw){
+        if(raw.contains("\"background_candidates\"")||raw.contains("\"background_action\"")||raw.contains("\"answer\""))
+            return new Output("本次背景候选格式未通过校验，尚未保存。请重新整理候选，核对编号、数量及确切内容后再确认。",List.of());
+        return new Output(raw,List.of());
+    }
+    /** Locate complete top-level objects without mistaking braces inside JSON strings for boundaries. */
+    private List<com.fasterxml.jackson.databind.JsonNode> protocolObjects(String raw){
+        List<com.fasterxml.jackson.databind.JsonNode> result=new ArrayList<>();
+        int start=-1,depth=0;boolean quoted=false,escaped=false;
+        for(int i=0;i<raw.length();i++){
+            char c=raw.charAt(i);
+            if(depth==0){if(c=='{'){start=i;depth=1;quoted=false;escaped=false;}continue;}
+            if(quoted){if(escaped)escaped=false;else if(c=='\\')escaped=true;else if(c=='"')quoted=false;continue;}
+            if(c=='"')quoted=true;else if(c=='{')depth++;else if(c=='}'&&--depth==0){
+                try{var node=json.readTree(raw.substring(start,i+1));
+                    if(node.isObject()&&node.has("answer"))result.add(node);
+                }catch(com.fasterxml.jackson.core.JsonProcessingException ignored){}
+            }
+        }
+        return result;
     }
     public String display(Output output){
         if(output.action!=null)return "背景变更提议尚未生效，请在下方核对确切记录后确认。";
         if(output.items.isEmpty())return output.answer;
-        StringBuilder answer=new StringBuilder("待保存的个人背景：\n");
+        StringBuilder answer=new StringBuilder("待保存的个人背景（共 ").append(output.items.size()).append(" 项，请核对数量与内容）：\n");
         for(int i=0;i<output.items.size();i++)answer.append(i+1).append(". ").append(output.items.get(i)).append('\n');
         return answer.append("保存后供此人物各工作区使用。确认保存全部，或说明只保存哪项？").toString();
     }

@@ -64,7 +64,13 @@ def verify(port,password):
         page.get_by_role('button',name='参考资料',exact=True).click()
         page.get_by_label('参考工作区简历',exact=True).uncheck()
         page.get_by_role('button',name='完成',exact=True).click()
-        page.route('**/conversation',lambda route:route.fulfill(json={'id':'browser-synthetic','message':'延迟受理问题','answer':None,'execution_status':'CALLING','record_status':'PENDING','error_code':None,'model':'test'},status=202) if route.request.method=='POST' else route.continue_())
+        submitted_messages=[]
+        def admission(route):
+            if route.request.method!='POST':
+                route.continue_();return
+            submitted_messages.append(route.request.post_data_json['message'])
+            route.fulfill(json={'id':'browser-synthetic','message':submitted_messages[-1],'answer':None,'execution_status':'CALLING','record_status':'PENDING','error_code':None,'model':'test'},status=202)
+        page.route('**/conversation',admission)
         page.evaluate('''() => {
           const original=window.fetch.bind(window);
           window.fetch=async (...args)=>{const response=await original(...args);
@@ -78,6 +84,7 @@ def verify(port,password):
         draft.fill('回答期间的新草稿')
         expect(page.get_by_role('button',name='正在受理…',exact=True)).to_have_count(0)
         expect(draft).to_have_value('回答期间的新草稿')
+        assert submitted_messages==['延迟受理问题'],submitted_messages
         expect(page.get_by_text('草稿已保存',exact=True)).to_be_visible()
         page.reload();expect(draft).to_have_value('回答期间的新草稿')
         browser.close()

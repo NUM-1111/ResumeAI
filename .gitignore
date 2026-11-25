@@ -13,3 +13,7 @@ __pycache__/
 *.pem
 *:Zone.Identifier
 *Zone.Identifier
+core
+core.*
+hs_err_pid*
+replay_pid*

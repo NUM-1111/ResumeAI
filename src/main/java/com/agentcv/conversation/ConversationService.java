@@ -132,7 +132,7 @@ public class ConversationService {
         for(var turn:history){String question=(String)turn.get("message"),answer=(String)turn.get("answer");int bytes=(question+answer).getBytes(StandardCharsets.UTF_8).length;
             if(bytes>budget)break;budget-=bytes;recent.add(0,Map.of("role","assistant","content",answer));recent.add(0,Map.of("role","user","content",question));}
         messages.addAll(recent);messages.add(Map.of("role","user","content",input.message));
-        return Map.of("model",gateway.model(),"stream",false,"thinking",Map.of("type","disabled"),"max_tokens",4096,"response_format",Map.of("type","json_object"),"messages",messages);
+        return Map.of("model",gateway.model(),"stream",false,"thinking",Map.of("type","disabled"),"max_tokens",4096,"messages",messages);
     }
     private ApiFailure changed(){return new ApiFailure(409,"VERSION_CONFLICT","资料范围或版本已变化，消息未发送。请刷新范围，核对后重新发送。");}
     public Map<String,Object> get(UUID p,UUID w,UUID id){
@@ -193,7 +193,7 @@ public class ConversationService {
                 unsaved.put(id,result);
                 persist(id,result);
             }catch(ModelGateway.Failure failure){
-                db.update("update ai_request set execution_status=?,record_status='SAVED',error_code=?,input_json='',updated_at=CURRENT_TIMESTAMP where id=? and execution_status='CALLING'",failure.unknown?"UNKNOWN":"MODEL_FAILED",failure.code,id);
+                db.update("update ai_request set execution_status=?,record_status='SAVED',error_code=?,supplier_request_id=?,usage_json=?,diagnostics_json=?,input_json='',updated_at=CURRENT_TIMESTAMP where id=? and execution_status='CALLING'",failure.unknown?"UNKNOWN":"MODEL_FAILED",failure.code,failure.supplierId,encode(failure.usage),encode(failure.diagnostics),id);
             }catch(Exception failure){
                 db.update("update ai_request set execution_status='UNKNOWN',record_status='SAVED',error_code='MODEL_RESULT_UNKNOWN',input_json='',updated_at=CURRENT_TIMESTAMP where id=? and execution_status='CALLING' and record_status<>'SAVE_FAILED'",id);
             }finally{running.remove(id);Thread.interrupted();}
@@ -215,7 +215,7 @@ public class ConversationService {
                 backgrounds.stage((UUID)row.get("profile_id"),(UUID)row.get("workspace_id"),id,output);
                 backgroundChanges.stage((UUID)row.get("profile_id"),(UUID)row.get("workspace_id"),id,output.action());
                 db.update("insert into conversation_message(id,workspace_id,request_id,role,text) values (?,?,?,'assistant',?) on conflict(request_id,role) do nothing",UUID.randomUUID(),row.get("workspace_id"),id,answer);
-                db.update("update ai_request set execution_status='SUCCEEDED',record_status='SAVED',answer=?,supplier_request_id=?,usage_json=?,input_json='',updated_at=CURRENT_TIMESTAMP where id=?",answer,result.supplierId(),encode(result.usage()),id);
+                db.update("update ai_request set execution_status='SUCCEEDED',record_status='SAVED',answer=?,supplier_request_id=?,usage_json=?,diagnostics_json=?,input_json='',updated_at=CURRENT_TIMESTAMP where id=?",answer,result.supplierId(),encode(result.usage()),encode(result.diagnostics()),id);
                 db.update("update conversation_state set version=version+1 where workspace_id=?",row.get("workspace_id"));
             });unsaved.remove(id);
         }catch(Exception failure){

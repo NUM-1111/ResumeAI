@@ -1,6 +1,6 @@
 # AgentCV · 工作区简历、对话与个人背景
 
-**当前正在开发 M08**：M07 用户体验反馈已记录，补齐待确认背景重开入口、执行器锁/启动恢复、暂存丢失提示、保守清理和测试文件隔离。51 项后端测试、实际 JAR 隔离恢复实验通过，完整故障矩阵尚未收束。见 [M08 开发与验证](docs/切片开发/M08/开发与验证.md)和[运行与体验](docs/切片开发/M08/运行与体验.md)。
+**当前进入 M09 最终串联验收**：已有简历、材料、对话、背景及恢复能力，52 项后端测试通过，完整 MVP 尚未标完成。先看 [使用指南](docs/使用指南.md)，最终验收见 [开发与验收](docs/切片开发/M09/开发与验收.md)和[最终体验与交接](docs/切片开发/M09/最终体验与交接.md)。M08 正常页面由用户确认，异常恢复依已有证据暂时通过，未执行实验继续保留。
 
 DeepSeek 密钥可放在项目根目录 `/root/java/ResumeAI/.env` 的 `DEEPSEEK_API_KEY=` 后，使用 `scripts/skeleton.py run` 自动读取。首次从 `.env.example` 复制，设置文件权限 600；已有文件不要覆盖。`.env` 不进入 Git，shell 同名变量优先，修改后重启生效。具体步骤见 [模型配置](docs/切片开发/M04/模型配置.md)。
 
@@ -40,6 +40,8 @@ python3 /root/java/ResumeAI/scripts/skeleton.py run
 
 当前 WSL 终端中，日常启动直接复制：
 
+本机 OpenJDK 17.0.15 曾在 C2 编译线程原生崩溃，启动脚本现对项目子JVM默认追加 `-XX:TieredStopAtLevel=1` 临时绕开C2路径；保留C1、可能降低峰值性能。请使用脚本启动，后续升级Java17补丁版本再评估取消规避，详见 [JVM原生崩溃排查](docs/切片开发/M09/JVM原生崩溃排查.md)。
+
 ```bash
 python3 /root/java/ResumeAI/scripts/skeleton.py run
 ```
@@ -54,7 +56,7 @@ python3 /root/java/ResumeAI/scripts/skeleton.py run
 下文的 `run`、`verify` 等名称均指 `python3 /root/java/ResumeAI/scripts/skeleton.py` 的子命令，不是直接输入的 shell 命令。当前使用 Linux 终端，不执行 `powershell.exe` 或 `.ps1` 文件。
 
 - 已完成首次准备且数据库仍在运行时，只执行 `run`，不用每次构建或改口令。
-- Docker/WSL 重启后，专属数据库不会自动启动。先启动 Docker，再在 WSL 执行 `python3 /root/java/ResumeAI/scripts/m00_database.py`，然后 `run`；也可执行 `verify`，但会同时构建和运行测试。
+- Docker/WSL 重启后，先启动 Docker；`run` 会检查并启动专属数据库容器，也可单独执行 `python3 /root/java/ResumeAI/scripts/m00_database.py` 检查。
 - 停止应用前等待页面显示“已保存”，再在运行它的终端按 **Ctrl+C**。数据库保持独立运行；下次启动仍可读取已保存简历。刷新或关页不保证恢复未保存文字。
 - 修改代码后，先停止应用，再执行 `verify`；成功后重新 `run`。前端和后端统一打入 JAR，单独刷新浏览器不会加载尚未打包的代码。
 - 若提示端口占用，检查是否已启动应用；不要为启动新实例而结束未知进程。当前入口没有 `stop`、`status` 或 `db-start` 子命令，不使用旧 `scripts/local.py`。
@@ -73,7 +75,7 @@ python3 /root/java/ResumeAI/scripts/skeleton.py run
 说明：仅用于软件体验，不是真实经历。
 ```
 
-粘贴建立工作区简历不会添加个人材料，也不等于确认个人背景。上传和复制按 M02 指南体验；个人材料独立添加和选择参考，AI 尚未开放。
+粘贴建立工作区简历不会添加个人材料，也不等于确认个人背景。个人材料独立添加和选择参考；AI 需后端配置密钥后主动发送，不自动改稿。
 
 用户已依据 M01 页面体验指南确认测试没有问题，本片已完成。上述步骤保留供后续回归；反馈只需说明“走到哪一步、看到什么、期望什么”，不需要 F12、UUID 或数据库检查。故障、冲突、幂等和登录失效由自动化验证。详细说明见 [M01 页面体验](docs/切片开发/M01/页面体验.md)。
 
@@ -95,7 +97,7 @@ python3 /root/java/ResumeAI/scripts/skeleton.py run
 | `set-password` | 交互设置新工程操作者口令，仅保存散列 |
 | `run` | 使用已构建 JAR 和运行中的专属数据库，在 8081 前台启动 |
 
-`smoke` 是开发验证，不是日常使用前的必做步骤；需要 WSL 已有 Python Playwright 和 Chromium。它使用临时测试口令，不修改用户口令，但 `verify` 和 `smoke` 会向专属开发库写入合成测试数据，当前不会自动清理。接口测试通过不替代用户体验确认。
+`smoke` 是开发验证，不是日常使用前的必做步骤；需要 WSL 已有 Python Playwright 和 Chromium。它使用临时测试口令、不修改用户口令，排除真实模型密钥。verify/smoke 写入 `m00_test` 和 `.local/m00-test/resume-files`；正式业务为 `m00_app` 和 `.local/m00/resume-files`。默认 smoke 覆盖现有全部浏览器分片，亦可用 --slice 选择。测试数据不自动全部删除，接口测试不替代用户体验确认。
 
 失败时查看终端错误；浏览器回归服务端日志在 `.local/skeleton-smoke.log`，后端测试报告在 `target/surefire-reports/`。不要提交凭据文件、日志、数据库或包含个人资料的截图。
 

@@ -98,6 +98,25 @@ class M06IntegrationTest {
         assertThat(backgrounds.rows(p)).extracting(row->row.get("text")).containsExactlyInAnyOrder("项目A中协助部署，非独立负责。","项目A中开发订单接口。");
         assertThat(backgrounds.pending(p,w)).isEmpty();verify(gateway,times(1)).complete(anyString());
     }
+    @Test void proseWrappedCandidatesCanBeConfirmedWithoutLeakingProtocol() {
+        UUID p=person(),w=workspace(p);candidate(p,w);
+        when(gateway.complete(anyString())).thenReturn(new ModelGateway.Result("以下重新提交，请核对。\n```json\n{\"answer\":\"重新提交\",\"background_candidates\":[\"计划由本人制定，编码由AI辅助\",\"框架来自自学\"]}\n```\n请确认。","test",Map.of()));
+        UUID r=send(p,w,"重新提交");conversation.processPendingForTest(r);
+        var shown=conversation.get(p,w,r).get("answer").toString();
+        assertThat(shown).contains("共 2 项","计划由本人制定").doesNotContain("background_candidates","\"answer\"");
+        var c=backgrounds.pending(p,w);assertThat(c).isNotEmpty();
+        backgrounds.confirm(p,(UUID)c.get("id"),UUID.randomUUID(),confirm(w,c,"全部确认"));
+        assertThat(backgrounds.rows(p)).hasSize(2);verify(gateway,times(2)).complete(anyString());
+    }
+    @Test void ambiguousTruncatedAndEscapedProtocolIsHandledSafely(){
+        String valid="{\"answer\":\"候选\",\"background_candidates\":[\"项目中使用{a}及\\\"引号\\\"\"]}";
+        assertThat(backgrounds.decode("说明\n"+valid).items()).containsExactly("项目中使用{a}及\"引号\"");
+        for(String raw:List.of(valid+"\n"+valid,"说明 {\"answer\":\"截断\",\"background_candidates\":[")){
+            var output=backgrounds.decode(raw);assertThat(output.items()).isEmpty();
+            assertThat(backgrounds.display(output)).contains("尚未保存").doesNotContain("background_candidates","\"answer\"");
+        }
+        assertThat(backgrounds.decode("普通回答，不包含协议").answer()).isEqualTo("普通回答，不包含协议");
+    }
     @Test void clearingUnacknowledgedUnknownAllowsFreshSend(){
         UUID p=person(),w=workspace(p);candidate(p,w);
         when(gateway.complete(anyString())).thenThrow(new ModelGateway.Failure("MODEL_RESULT_UNKNOWN",true));

@@ -20,6 +20,10 @@ JAR = ROOT / 'target/agentcv-0.0.1-SNAPSHOT.jar'
 
 def environment():
     env = load_model_environment(m00_database.environment(), ROOT / '.env')
+    # This host's OpenJDK 17.0.15 crashed in C2 PhaseLive/Register_Allocate.
+    # Apply to Maven and every child JVM, including smoke/recovery processes.
+    options = env.get('JAVA_TOOL_OPTIONS', '').strip()
+    env['JAVA_TOOL_OPTIONS'] = (options + ' -XX:TieredStopAtLevel=1').strip()
     env['PATH'] = str(NODE) + ':' + env['PATH']
     password_file = ROOT / '.local/m00/operator.hash'
     if password_file.exists():
@@ -91,16 +95,16 @@ def smoke(only=None):
             if only is None or only == 'm03':
                 from browser_m03 import verify as browser_m03_verify
                 browser_m03_verify(18081,test_password)
-            if only == 'm04-layout':
+            if only is None or only == 'm04-layout':
                 from browser_m04_layout import verify as layout_verify
                 layout_verify(18081,test_password)
-            if only == 'm05':
+            if only is None or only == 'm05':
                 from browser_m05 import verify as m05_verify
                 m05_verify(18081,test_password)
-            if only == 'm06':
+            if only is None or only == 'm06':
                 from browser_m06 import verify as m06_verify
                 m06_verify(18081,test_password)
-            if only == 'm07':
+            if only is None or only == 'm07':
                 from browser_m07 import verify as m07_verify
                 m07_verify(18081,test_password)
         finally:

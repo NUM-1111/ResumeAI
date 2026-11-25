@@ -12,7 +12,7 @@ class WorkerGuardTest {
         try(var guard=new WorkerGuard(Path.of(args[0]))){System.out.println("LOCKED");System.out.flush();System.in.read();}
     }
     Process child(Path lock) throws Exception {
-        return new ProcessBuilder(Path.of(System.getProperty("java.home"),"bin","java").toString(),"-cp",System.getProperty("java.class.path"),WorkerGuardTest.class.getName(),lock.toString()).redirectErrorStream(true).start();
+        return new ProcessBuilder(Path.of(System.getProperty("java.home"),"bin","java").toString(),"-cp",System.getProperty("java.class.path"),WorkerGuardTest.class.getName(),lock.toString()).redirectError(ProcessBuilder.Redirect.DISCARD).start();
     }
     @Test void secondProcessCannotOwnLockAndCrashReleasesIt() throws Exception {
         Path lock=folder.resolve("worker.lock");Process first=child(lock);

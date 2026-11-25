@@ -84,10 +84,11 @@ export const conversation=defineComponent({
     }
     async function send(){
       if(busy.value||active()||reviewRequired.value||!text.value.trim()||!scope.value)return;
+      const submitted=text.value;
       busy.value=true;notice.value='';
       try{
         if(change.value&&/^(确认|确认纠正|确认撤回|确认删除)[。！!]?\s*$/.test(text.value.trim())){
-          const submitted=text.value,shown=change.value;
+          const shown=change.value;
           if((submitted.includes('撤回')||submitted.includes('删除'))&&shown.kind!=='WITHDRAW'){notice.value='当前展示的是纠正提议，请核对后使用对应确认操作。';return;}
           if(submitted.includes('纠正')&&shown.kind!=='CORRECT'){notice.value='当前展示的是撤回提议，请核对后使用对应确认操作。';return;}
           changeKey??=crypto.randomUUID();
@@ -98,8 +99,11 @@ export const conversation=defineComponent({
         const latestCandidate=await request<Partial<Candidate>>(base()+'/background-candidates');
         if(latestCandidate.id&&latestCandidate.id!==candidate.value?.id){notice.value='候选已更新，请先核对最新回答，再主动确认。';candidate.value=latestCandidate as Candidate;return;}
         candidate.value=latestCandidate.id?latestCandidate as Candidate:null;
+        if(!candidate.value&&/^(全部确认|确认保存全部|确认全部并保存|确认以上全部并保存)[。！!]?\s*$/.test(submitted.trim())){
+          backgroundStatus.value='当前没有可确认的背景候选，尚未保存，也未调用模型。请先让对话重新展示编号候选，核对数量与内容后再确认。';return;
+        }
         if(candidate.value){
-          const body={workspace_id:props.workspaceId,expected_version:candidate.value.version,displayed_text:candidate.value.display_text,user_text:text.value};
+          const body={workspace_id:props.workspaceId,expected_version:candidate.value.version,displayed_text:candidate.value.display_text,user_text:submitted};
           backgroundRetry={candidate:candidate.value,body,key:crypto.randomUUID()};
           if(await confirmBackground())return;
         }
@@ -107,12 +111,11 @@ export const conversation=defineComponent({
         if(reference.value&&!await props.prepare()){notice.value='简历未保存，本条消息未发送。';return;}
         // Preserve scope/version conditions unless user explicitly refreshes; resume save is intentional.
         if(reference.value){const latest=await request<{version:number}>(base()+'/resume');scope.value.resume_version=latest.version;}
-        const body={message:text.value,reference_resume:reference.value,expected_resume_version:scope.value.resume_version,
+        const body={message:submitted,reference_resume:reference.value,expected_resume_version:scope.value.resume_version,
           expected_scope_version:scope.value.scope_version,material_versions:Object.fromEntries(scope.value.materials.map(m=>[m.id,m.text_version])),
           expected_conversation_version:state.value.version,expected_context_epoch:state.value.epoch};
         const signature=JSON.stringify(body);
         if(!operation||operation.body!==signature)operation={body:signature,key:crypto.randomUUID()};
-        const submitted=text.value;
         const result=await request<Task>(base()+'/conversation','POST',body,operation.key);
         tasks.value=[result,...tasks.value.filter(t=>t.id!==result.id)];operation=null;
         if(text.value===submitted){text.value='';void saveDraft();}
@@ -210,6 +213,11 @@ export const conversation=defineComponent({
         task.record_status==='SAVE_FAILED'?h('div',[h('p','回答未保存，重开可能丢失。解决前暂停发送。'),h('button',{onClick:()=>persist(task)},'重试保存回答')]):null,
         task.execution_status==='MODEL_FAILED'?h('p',`模型调用失败（${task.error_code}）。未自动重试。`):null,
         task.execution_status==='UNKNOWN'?h('div',[h('p','调用结果不明，不会自动重调；重新调用可能重复收费。'),
+          task.error_code==='MODEL_RESPONSE_TIMEOUT'?h('p','等待模型完整回答已达到本地期限，未取得完整响应；不是应用崩溃。可检查参考资料范围后，确认风险再主动发送。'):null,
+          task.error_code==='MODEL_TRANSPORT_ERROR'?h('p','模型连接或传输中断，未取得可靠结果；供应商可能仍已执行。'):null,
+          task.error_code==='MODEL_INVALID_RESPONSE'?h('p','模型服务返回的数据无法解析，未自动重试。'):null,
+          task.error_code==='MODEL_WAIT_INTERRUPTED'?h('p','本地等待被中断，无法据此确认供应商是否执行。'):null,
+          task.error_code==='MODEL_EMPTY_RESPONSE'?h('p','模型服务已返回，但没有可显示的回答（空白内容），不是应用崩溃。未自动重试；确认风险后可主动重新发送。'):null,
           task.error_code==='RESULT_LOST_ON_RESTART'?h('p','应用已重启，之前尚未保存的回答暂存已丢失；若页面仍有回答请先复制。不会重新调用模型恢复。'):null,
           task.error_code!=='UNKNOWN_ACKNOWLEDGED'?h('button',{onClick:async()=>{if(window.confirm('供应商可能已经执行原调用。确认承担重复费用风险并允许下一次主动发送？'))try{await request(base()+'/requests/'+task.id+'/acknowledge-unknown','POST',{},crypto.randomUUID());notice.value='已记录风险确认；请主动输入并发送，不会自动调用。';}catch(e){notice.value=failure(e);}}},'确认风险，允许下一次发送'):null]):null,
       ])])),

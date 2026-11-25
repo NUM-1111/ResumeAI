@@ -44,6 +44,18 @@ class M08IntegrationTest {
         service.processPendingForTest(accepted);service.processPendingForTest(accepted);verify(gateway,times(1)).complete(anyString());
         assertThat(service.get(p,w,accepted).get("answer")).isEqualTo("合成恢复回答");
     }
+    @Test void failureDiagnosticsPersistWithoutReplayingModel(){
+        model();UUID p=person(),w=workspace(p);
+        var failure=new ModelGateway.Failure("MODEL_RESPONSE_TIMEOUT",true);
+        failure.diagnostics=Map.of("stage","KEEPALIVE_ONLY","http_status",200,"bytes_received",12L);
+        when(gateway.complete(anyString())).thenThrow(failure);
+        UUID id=(UUID)service.send(p,w,UUID.randomUUID(),input(p,w)).get("id");
+        service.processPendingForTest(id);service.processPendingForTest(id);
+        assertThat(service.get(p,w,id)).containsEntry("execution_status","UNKNOWN").containsEntry("error_code","MODEL_RESPONSE_TIMEOUT");
+        assertThat(db.queryForObject("select diagnostics_json from ai_request where id=?",String.class,id)).contains("KEEPALIVE_ONLY","http_status","bytes_received");
+        assertThat(db.queryForObject("select input_json from ai_request where id=?",String.class,id)).isEmpty();
+        verify(gateway,times(1)).complete(anyString());
+    }
     @Test void globalAdmissionIsBoundedAndRejectedDraftIsPreserved(){
         model();UUID p=person();List<UUID> requests=new ArrayList<>(),areas=new ArrayList<>();
         try{
