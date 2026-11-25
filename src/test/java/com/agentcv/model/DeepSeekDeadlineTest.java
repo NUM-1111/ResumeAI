@@ -22,6 +22,7 @@ class DeepSeekDeadlineTest {
                 assertThatThrownBy(()->gateway.complete("{}" )).isInstanceOfSatisfying(ModelGateway.Failure.class,error->{
                     assertThat(error.code).isEqualTo("MODEL_RESPONSE_TIMEOUT");
                     assertThat(error.diagnostics.get("stage")).isEqualTo(partial?"BODY_RECEIVING":"WAITING_HEADERS");
+                    assertThat(error.diagnostics.get("requested_http_version")).isEqualTo("HTTP_1_1");
                     assertThat(error.diagnostics.toString()).doesNotContain("synthetic-secret","Authorization","http://");
                 });
             }finally{release.countDown();server.stop(0);executor.shutdownNow();}
@@ -38,7 +39,7 @@ class DeepSeekDeadlineTest {
             }
         });server.start();
         try{var gateway=new DeepSeekGateway("test",new ObjectMapper(),URI.create("http://127.0.0.1:"+server.getAddress().getPort()+"/chat"),Duration.ofSeconds(2));
-            assertThat(gateway.complete("{}").answer()).isEqualTo("slow answer");assertThat(calls.get()).isEqualTo(1);
+            var result=gateway.complete("{}");assertThat(result.answer()).isEqualTo("slow answer");assertThat(result.diagnostics()).containsEntry("http_version","HTTP_1_1");assertThat(calls.get()).isEqualTo(1);
         }finally{server.stop(0);}
     }
     @Test void malformedSupplierBodyIsDistinguishedFromTimeout() throws Exception {

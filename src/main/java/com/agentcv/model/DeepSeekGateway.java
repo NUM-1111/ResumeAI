@@ -16,7 +16,7 @@ public class DeepSeekGateway implements ModelGateway {
     private final URI endpoint;
     private final Duration deadline;
     private final HttpClient client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15))
-            .followRedirects(HttpClient.Redirect.NEVER).build();
+            .version(HttpClient.Version.HTTP_1_1).followRedirects(HttpClient.Redirect.NEVER).build();
     @org.springframework.beans.factory.annotation.Autowired
     public DeepSeekGateway(@Value("${DEEPSEEK_API_KEY:}") String key,ObjectMapper json,@Value("${agentcv.ai.response-timeout-seconds:180}") long timeout){this(key,json,URI.create("https://api.deepseek.com/chat/completions"),Duration.ofSeconds(timeout));}
     DeepSeekGateway(String key,ObjectMapper json,URI endpoint,Duration deadline){if(deadline.isNegative()||deadline.isZero()||deadline.compareTo(Duration.ofMinutes(10))>0)throw new IllegalArgumentException("Response timeout must be positive and at most 600 seconds");this.key=key;this.json=json;this.endpoint=endpoint;this.deadline=deadline;}
@@ -68,6 +68,7 @@ public class DeepSeekGateway implements ModelGateway {
         private long elapsed(){return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-started);}
         synchronized Map<String,Object> snapshot(){
             Map<String,Object> data=new java.util.LinkedHashMap<>();
+            data.put("requested_http_version","HTTP_1_1");
             data.put("elapsed_ms",elapsed());data.put("bytes_received",bytes);data.put("whitespace_bytes",whitespace);
             data.put("stage",headersMs==null?"WAITING_HEADERS":bytes==0?"WAITING_BODY":firstContentMs==null?"KEEPALIVE_ONLY":"BODY_RECEIVING");
             if(headersMs!=null){data.put("headers_ms",headersMs);data.put("http_status",status);data.put("http_version",version);}
